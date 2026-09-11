@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { House } from "@/lib/types";
+import { CATEGORIES, type House } from "@/lib/types";
 
 type PendingForMatch = {
   id: string;
@@ -17,16 +17,21 @@ type EditableLine = {
   quantity: string;
   unit_price: string;
   line_total: string;
+  category: string;
   destination: "house" | "warehouse";
   house_id: string;
   matched_request_id: string;
 };
 
+type Step = "upload" | "review" | "match";
+
 export default function NewInvoiceTab() {
   const [houses, setHouses] = useState<House[]>([]);
   const [pending, setPending] = useState<PendingForMatch[]>([]);
-  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imagePaths, setImagePaths] = useState<string[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [lines, setLines] = useState<EditableLine[]>([]);
+  const [step, setStep] = useState<Step>("upload");
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,23 +43,46 @@ export default function NewInvoiceTab() {
       .then((d) => setHouses(d.houses ?? []));
   }, []);
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // يحرّر روابط المعاينة المؤقتة لما نبدأ فاتورة جديدة
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach((u) => URL.revokeObjectURL(u));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function resetAll() {
+    previewUrls.forEach((u) => URL.revokeObjectURL(u));
+    setPreviewUrls([]);
+    setImagePaths([]);
+    setLines([]);
+    setStep("upload");
+    setError(null);
+    setSuccess(null);
+  }
+
+  async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setError(null);
     setSuccess(null);
     setParsing(true);
-    setLines([]);
+
+    const urls = files.map((f) => URL.createObjectURL(f));
+    setPreviewUrls(urls);
+
     try {
       const form = new FormData();
-      form.append("image", file);
+      for (const f of files) form.append("images", f);
       const res = await fetch("/api/purchases/parse-invoice", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "حدث خطأ");
+        urls.forEach((u) => URL.revokeObjectURL(u));
+        setPreviewUrls([]);
         return;
       }
-      setImagePath(data.imagePath);
+      setImagePaths(data.imagePaths ?? []);
       setPending(data.pendingRequests ?? []);
 
       const editable: EditableLine[] = (data.lines ?? []).map(
@@ -64,6 +92,7 @@ export default function NewInvoiceTab() {
             quantity: number | null;
             unit_price: number | null;
             line_total: number | null;
+            category: string | null;
             suggested_request_id: string | null;
           },
           idx: number,
@@ -77,6 +106,7 @@ export default function NewInvoiceTab() {
             quantity: l.quantity != null ? String(l.quantity) : "",
             unit_price: l.unit_price != null ? String(l.unit_price) : "",
             line_total: l.line_total != null ? String(l.line_total) : "0",
+            category: l.category ?? "أخرى",
             destination: matched ? "house" : "warehouse",
             house_id: matched ? matched.house_id : "",
             matched_request_id: matched ? matched.id : "",
@@ -84,6 +114,7 @@ export default function NewInvoiceTab() {
         },
       );
       setLines(editable);
+      setStep("review");
     } catch {
       setError("تعذّر الاتصال بالخادم");
     } finally {
@@ -109,6 +140,7 @@ export default function NewInvoiceTab() {
         quantity: l.quantity ? Number(l.quantity) : null,
         unit_price: l.unit_price ? Number(l.unit_price) : null,
         line_total: Number(l.line_total || 0),
+        category: l.category || null,
         destination: l.destination,
         house_id: l.destination === "house" ? l.house_id : null,
         matched_request_id: l.matched_request_id || null,
@@ -116,7 +148,7 @@ export default function NewInvoiceTab() {
       const res = await fetch("/api/purchases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagePath, lines: payload }),
+        body: JSON.stringify({ imagePaths, lines: payload }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -124,8 +156,7 @@ export default function NewInvoiceTab() {
         return;
       }
       setSuccess("تم حفظ الفاتورة بنجاح ✅");
-      setLines([]);
-      setImagePath(null);
+      resetAll();
     } catch {
       setError("تعذّر الاتصال بالخادم");
     } finally {
@@ -134,26 +165,49 @@ export default function NewInvoiceTab() {
   }
 
   const total = lines.reduce((s, l) => s + Number(l.line_total || 0), 0);
+  const needsManualMatch = (l: EditableLine) => l.destination === "warehouse" && !l.matched_request_id;
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="card">
-        <h2 className="font-bold mb-3">تصوير فاتورة جديدة</h2>
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          capture="environment"
-          onChange={onFile}
-          className="input"
-        />
-        {parsing && <p className="text-sm text-gray-500 mt-2">جارٍ قراءة الفاتورة بالذكاء الاصطناعي...</p>}
-        {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-        {success && <p className="text-emerald-600 text-sm mt-2">{success}</p>}
-      </section>
+      {step === "upload" && (
+        <section className="card">
+          <h2 className="font-bold mb-3">تصوير فاتورة جديدة</h2>
+          <p className="text-xs text-gray-500 mb-2">
+            لو الفاتورة طويلة ومصوّرة على أكثر من صورة، اختر كل الصور دفعة وحدة — بترتيبها من الأول للآخر.
+          </p>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            onChange={onFiles}
+            className="input"
+          />
+          {parsing && <p className="text-sm text-gray-500 mt-2">جارٍ قراءة الفاتورة بالذكاء الاصطناعي...</p>}
+          {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
+          {success && <p className="text-emerald-600 text-sm mt-2">{success}</p>}
+        </section>
+      )}
 
-      {lines.length > 0 && (
-        <section className="card overflow-x-auto">
-          <h2 className="font-bold mb-3">راجع الأسطر قبل الحفظ ({lines.length})</h2>
+      {step === "review" && (
+        <section className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold">١. راجع القراءة ({lines.length} سطر)</h2>
+            <button onClick={resetAll} className="text-xs text-gray-500">
+              إلغاء والبدء من جديد
+            </button>
+          </div>
+
+          {previewUrls.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto mb-4 pb-1">
+              {previewUrls.map((u, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={i} src={u} alt={`صورة ${i + 1}`} className="h-28 w-auto rounded-lg border border-gray-200 shrink-0" />
+              ))}
+            </div>
+          )}
+
+          <p className="text-xs text-gray-500 mb-3">قارن الأرقام مع الصور فوق وصحّح أي خطأ قبل ما تكمل.</p>
+
           <div className="flex flex-col gap-3">
             {lines.map((l) => (
               <div key={l.key} className="border border-gray-100 rounded-lg p-3 flex flex-col gap-2">
@@ -193,6 +247,55 @@ export default function NewInvoiceTab() {
                     onChange={(e) => updateLine(l.key, { line_total: e.target.value })}
                   />
                 </div>
+                <select className="input" value={l.category} onChange={(e) => updateLine(l.key, { category: e.target.value })}>
+                  {CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+            <p className="font-bold">الإجمالي: {total.toFixed(2)}</p>
+            <button className="btn-primary" onClick={() => setStep("match")} disabled={lines.length === 0}>
+              الأسطر صحيحة، تابع للمطابقة ←
+            </button>
+          </div>
+        </section>
+      )}
+
+      {step === "match" && (
+        <section className="card overflow-x-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold">٢. طابق كل سطر ({lines.length})</h2>
+            <button onClick={() => setStep("review")} className="text-xs text-gray-500">
+              → رجوع لمراجعة القراءة
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {lines.map((l) => (
+              <div
+                key={l.key}
+                className={`border rounded-lg p-3 flex flex-col gap-2 ${
+                  needsManualMatch(l) ? "border-amber-300 bg-amber-50" : "border-gray-100"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-sm">
+                    {l.item_name}{" "}
+                    <span className="text-gray-400 text-xs">
+                      ({l.quantity || "—"} × {l.unit_price || "—"} = {l.line_total})
+                    </span>
+                  </p>
+                  <span className="text-xs text-gray-400">{l.category}</span>
+                </div>
+                {needsManualMatch(l) && (
+                  <p className="text-xs text-amber-700">⚠️ ما لقى له الذكاء الاصطناعي طلب مطابق — تأكد من الوجهة يدويًا</p>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <select
                     className="input"
@@ -243,10 +346,12 @@ export default function NewInvoiceTab() {
             ))}
           </div>
 
+          {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
             <p className="font-bold">الإجمالي: {total.toFixed(2)}</p>
             <button className="btn-primary" onClick={save} disabled={saving}>
-              {saving ? "جارٍ الحفظ..." : "حفظ الفاتورة"}
+              {saving ? "جارٍ الحفظ..." : "تم، احفظ الفاتورة"}
             </button>
           </div>
         </section>

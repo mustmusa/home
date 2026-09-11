@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ExtractedInvoiceLine, ParsedRequestItem } from "./types";
+import { CATEGORIES, type ExtractedInvoiceLine, type ParsedRequestItem } from "./types";
 
 let cachedClient: Anthropic | null = null;
 
@@ -80,27 +80,42 @@ type PendingRequestForMatch = {
   house_name: string;
 };
 
+type InvoiceImage = {
+  base64: string;
+  mediaType: "image/jpeg" | "image/png" | "image/webp";
+};
+
 /**
- * يقرأ صورة فاتورة ويستخرج عناصرها كأسطر منفصلة، مع اقتراح مطابقة كل سطر
- * بأحد الطلبات المعلّقة إن أمكن (السطر غير المطابق يُفترض أنه للمخزون).
+ * يقرأ صورة (أو عدة صور لنفس الفاتورة الطويلة) ويستخرج عناصرها كأسطر منفصلة،
+ * مع تصنيف كل عنصر واقتراح مطابقته بأحد الطلبات المعلّقة إن أمكن
+ * (السطر غير المطابق يُفترض أنه للمخزون).
  */
 export async function extractInvoiceLines(
-  imageBase64: string,
-  mediaType: "image/jpeg" | "image/png" | "image/webp",
+  images: InvoiceImage[],
   pendingRequests: PendingRequestForMatch[],
 ): Promise<ExtractedInvoiceLine[]> {
   const pendingList = pendingRequests
     .map((r) => `- id="${r.id}" (${r.house_name}): ${r.item_name}${r.quantity_text ? " — " + r.quantity_text : ""}`)
     .join("\n");
 
-  const prompt = `هذه صورة فاتورة مشتريات (سوبر ماركت أو بقالة). اقرأ كل سطر مشتريات فيها واستخرجه.
+  const multiImageNote =
+    images.length > 1
+      ? `هذه ${images.length} صور لنفس الفاتورة الواحدة (فاتورة طويلة صُوّرت على أجزاء متتالية، بنفس ترتيب الصور المعطاة). اقرأها كوحدة واحدة متصلة وليس كفواتير منفصلة.
 
-لكل سطر أعد كائن JSON بالشكل:
+⚠️ مهم جدًا: أحيانًا يتداخل جزء من نهاية صورة مع بداية الصورة التالية (نفس الأسطر تظهر بصورتين). قارن الأسطر بين الصور بعناية واستخرج كل سطر مرة واحدة فقط — لا تكرره حتى لو ظهر في أكثر من صورة.
+
+`
+      : "";
+
+  const prompt = `هذه صورة${images.length > 1 ? "صور" : ""} فاتورة مشتريات (سوبر ماركت أو بقالة). اقرأ كل سطر مشتريات فيها واستخرجه.
+
+${multiImageNote}لكل سطر أعد كائن JSON بالشكل:
 {
   "item_name": "اسم العنصر كما في الفاتورة (أو اسم مبسّط مفهوم)",
   "quantity": رقم الكمية أو null إن لم تُقرأ,
   "unit_price": سعر الوحدة أو null,
   "line_total": إجمالي السطر (رقم فقط بدون رمز عملة)، احسبه من quantity*unit_price إذا لم يظهر صراحة،
+  "category": صنّف العنصر لأقرب فئة من هذه القائمة بالضبط: ${JSON.stringify(CATEGORIES)},
   "suggested_request_id": معرّف الطلب المطابق من القائمة أدناه إن وجد تطابق واضح بالاسم، وإلا null
 }
 
@@ -110,18 +125,23 @@ ${pendingList || "(لا توجد طلبات معلّقة حاليًا)"}
 قواعد:
 - إذا طابق السطر أحد الطلبات المعلّقة أعلاه بوضوح، اجعل suggested_request_id = معرّف ذلك الطلب.
 - إذا لم يطابق أي طلب، اجعل suggested_request_id = null (سيُفترض أنه اشتُري بعرض للتخزين في المخزن).
-- لا تخترع أسطر غير موجودة في الصورة، ولا تتجاهل أي سطر ظاهر.
+- لا تخترع أسطر غير موجودة في الصور، ولا تتجاهل أي سطر ظاهر، ولا تكرر نفس السطر مرتين.
 
 أعد فقط مصفوفة JSON من هذه الكائنات، بدون أي نص أو شرح إضافي.`;
 
   const response = await client().messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 4096,
+    max_tokens: 8192,
     messages: [
       {
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
+          ...images.map(
+            (img): Anthropic.ImageBlockParam => ({
+              type: "image",
+              source: { type: "base64", media_type: img.mediaType, data: img.base64 },
+            }),
+          ),
           { type: "text", text: prompt },
         ],
       },
@@ -143,6 +163,7 @@ ${pendingList || "(لا توجد طلبات معلّقة حاليًا)"}
           : (typeof l.quantity === "number" && typeof l.unit_price === "number"
               ? l.quantity * l.unit_price
               : 0),
+      category: (CATEGORIES as readonly string[]).includes(l.category ?? "") ? (l.category as string) : "أخرى",
       suggested_request_id: l.suggested_request_id ?? null,
     }));
 }

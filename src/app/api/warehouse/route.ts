@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
   const unit = body.unit ? String(body.unit).trim() : null;
   const unit_cost = body.unit_cost != null ? Number(body.unit_cost) : null;
   const notes = body.notes ? String(body.notes).trim() : null;
+  const category = body.category ? String(body.category).trim() : null;
 
   if (!name || quantity < 0) {
     return NextResponse.json({ error: "اسم العنصر والكمية مطلوبان" }, { status: 400 });
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
         unit: unit ?? existing.unit,
         unit_cost: unit_cost ?? existing.unit_cost,
         notes: notes ?? existing.notes,
+        category: category ?? existing.category,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id as string)
@@ -73,7 +75,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await db
     .from("warehouse_items")
-    .insert({ name, quantity, unit, unit_cost, notes })
+    .insert({ name, quantity, unit, unit_cost, notes, category })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

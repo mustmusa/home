@@ -20,6 +20,28 @@ export type SessionPayload = {
   houseId: string | null;
 };
 
+/** حساب مطابق (رقم+رمز صحيحين) يُعرض للاختيار لما نفس الجوال مرتبط بأكثر من دور */
+export type LoginAccountOption = {
+  id: string;
+  name: string;
+  role: Role;
+  houseId: string | null;
+  houseName: string | null;
+};
+
+export const CATEGORIES = [
+  "خضار وفواكه",
+  "ألبان وبيض",
+  "لحوم ودواجن",
+  "مخبوزات",
+  "بقالة جافة",
+  "منظفات وعناية منزلية",
+  "مشروبات",
+  "أخرى",
+] as const;
+
+export type Category = (typeof CATEGORIES)[number];
+
 export type RequestStatus = "pending" | "purchased" | "cancelled";
 
 export type PurchaseRequest = {
@@ -39,6 +61,7 @@ export type WarehouseItem = {
   quantity: number;
   unit: string | null;
   unit_cost: number | null;
+  category: string | null;
   notes: string | null;
   updated_at: string;
 };
@@ -54,6 +77,7 @@ export type PurchaseLine = {
   line_total: number;
   destination: Destination;
   house_id: string | null;
+  category: string | null;
   matched_request_id: string | null;
   source: "invoice" | "warehouse_pull";
   created_at: string;
@@ -61,7 +85,7 @@ export type PurchaseLine = {
 
 export type Purchase = {
   id: string;
-  invoice_image_path: string | null;
+  invoice_image_paths: string[] | null;
   purchased_by: string | null;
   purchased_at: string;
   total_amount: number;
@@ -78,5 +102,6 @@ export type ExtractedInvoiceLine = {
   quantity: number | null;
   unit_price: number | null;
   line_total: number | null;
+  category: string | null;
   suggested_request_id: string | null;
 };

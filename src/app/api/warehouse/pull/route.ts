@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
       line_total: lineTotal,
       destination: "house",
       house_id: houseId,
+      category: item.category ?? null,
       matched_request_id: matchedRequestId,
       source: "warehouse_pull",
     })

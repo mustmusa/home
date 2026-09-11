@@ -2,7 +2,7 @@ import type { RequestStatus } from "@/lib/types";
 
 const LABELS: Record<RequestStatus, string> = {
   pending: "بانتظار الشراء",
-  purchased: "تم الشراء",
+  purchased: "تم إحضاره",
   cancelled: "ملغي",
 };
 

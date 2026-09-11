@@ -18,16 +18,20 @@ insert into houses (id, name)
 select gen_random_uuid(), 'بيت 2'
 where (select count(*) from houses) < 2;
 
--- المستخدمون الأربعة (زوجة 1، زوجة 2، مسؤول المخزن، الأدمن)
+-- المستخدمون (زوجة 1، زوجة 2، مسؤول المخزن، الأدمن)
+-- نفس رقم الجوال ممكن يتكرر لعدة حسابات (أدوار مختلفة)، لكن مو بنفس الدور والبيت مرتين
 create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  phone text not null unique,
+  phone text not null,
   pin_hash text not null,
   role text not null check (role in ('wife', 'warehouse', 'admin')),
   house_id uuid references houses(id),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique (phone, role, house_id)
 );
+
+create index if not exists idx_users_phone on users(phone);
 
 -- طلبات المشتريات (بعد تفسير النص بالذكاء الاصطناعي، عنصر واحد لكل سطر)
 create table if not exists requests (
@@ -50,14 +54,15 @@ create table if not exists warehouse_items (
   quantity numeric not null default 0,
   unit text,
   unit_cost numeric,
+  category text,
   notes text,
   updated_at timestamptz not null default now()
 );
 
--- الفواتير (فاتورة واحدة قد تحتوي عناصر لبيت 1 وبيت 2 والمخزن معًا)
+-- الفواتير (فاتورة واحدة قد تحتوي عناصر لبيت 1 وبيت 2 والمخزن معًا، وقد تكون عدة صور لفاتورة طويلة)
 create table if not exists purchases (
   id uuid primary key default gen_random_uuid(),
-  invoice_image_path text,
+  invoice_image_paths text[],
   purchased_by uuid references users(id),
   purchased_at timestamptz not null default now(),
   total_amount numeric not null default 0,
@@ -75,6 +80,7 @@ create table if not exists purchase_lines (
   line_total numeric not null default 0,
   destination text not null check (destination in ('house', 'warehouse')),
   house_id uuid references houses(id),
+  category text,
   matched_request_id uuid references requests(id),
   source text not null default 'invoice' check (source in ('invoice', 'warehouse_pull')),
   created_at timestamptz not null default now()

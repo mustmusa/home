@@ -9,6 +9,7 @@ type IncomingLine = {
   line_total: number;
   destination: "house" | "warehouse";
   house_id: string | null;
+  category: string | null;
   matched_request_id: string | null;
 };
 
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const imagePath = body.imagePath ? String(body.imagePath) : null;
+  const imagePaths: string[] = Array.isArray(body.imagePaths) ? body.imagePaths.map(String) : [];
   const lines = body.lines as IncomingLine[];
 
   if (!Array.isArray(lines) || lines.length === 0) {
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
   const { data: purchase, error: purchaseErr } = await db
     .from("purchases")
     .insert({
-      invoice_image_path: imagePath,
+      invoice_image_paths: imagePaths.length > 0 ? imagePaths : null,
       purchased_by: session.uid,
       total_amount: totalAmount,
       warehouse_total: warehouseTotal,
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
     line_total: Number(l.line_total || 0),
     destination: l.destination,
     house_id: l.destination === "house" ? l.house_id : null,
+    category: l.category ?? null,
     matched_request_id: l.matched_request_id,
     source: "invoice" as const,
   }));
@@ -110,6 +112,7 @@ export async function POST(req: NextRequest) {
         .update({
           quantity: Number(existing.quantity) + qty,
           unit_cost: l.unit_price ?? existing.unit_cost,
+          category: l.category ?? existing.category,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existing.id as string);
@@ -123,7 +126,7 @@ export async function POST(req: NextRequest) {
     } else {
       const { data: created } = await db
         .from("warehouse_items")
-        .insert({ name: l.item_name.trim(), quantity: qty, unit_cost: l.unit_price })
+        .insert({ name: l.item_name.trim(), quantity: qty, unit_cost: l.unit_price, category: l.category ?? null })
         .select()
         .single();
       if (created) {

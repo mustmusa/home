@@ -2,9 +2,11 @@
 
 import { useEffect, useState, useCallback } from "react";
 import StatusBadge from "@/components/StatusBadge";
+import HouseReport from "./HouseReport";
 import type { PurchaseRequest } from "@/lib/types";
 
 export default function WifeDashboard() {
+  const [tab, setTab] = useState<"requests" | "report">("requests");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +71,29 @@ export default function WifeDashboard() {
 
   return (
     <div className="px-4 -mt-6 flex flex-col gap-4 max-w-lg mx-auto">
+      <nav className="card !p-2 flex gap-1">
+        <button
+          onClick={() => setTab("requests")}
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold ${
+            tab === "requests" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          الطلبات
+        </button>
+        <button
+          onClick={() => setTab("report")}
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold ${
+            tab === "report" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          التقارير
+        </button>
+      </nav>
+
+      {tab === "report" && <HouseReport />}
+
+      {tab === "requests" && (
+        <>
       <section className="card">
         <h2 className="font-bold mb-3">اطلبي أغراض</h2>
         <form onSubmit={submit} className="flex flex-col gap-3">
@@ -135,6 +160,8 @@ export default function WifeDashboard() {
             ))}
           </ul>
         </section>
+      )}
+        </>
       )}
     </div>
   );

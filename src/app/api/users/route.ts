@@ -45,7 +45,9 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) {
-    const msg = error.message.includes("duplicate") ? "رقم الجوال مستخدم مسبقًا" : error.message;
+    const msg = error.message.includes("duplicate")
+      ? "يوجد حساب بنفس الجوال والدور (ونفس البيت لو زوجة) مسبقًا"
+      : error.message;
     return NextResponse.json({ error: msg }, { status: 500 });
   }
   return NextResponse.json({ user: data });

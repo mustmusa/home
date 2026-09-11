@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { House, PurchaseRequest, WarehouseItem } from "@/lib/types";
+import { CATEGORIES, type House, type PurchaseRequest, type WarehouseItem } from "@/lib/types";
 
 export default function WarehouseManager() {
   const [items, setItems] = useState<WarehouseItem[]>([]);
@@ -13,6 +13,7 @@ export default function WarehouseManager() {
   const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("");
   const [cost, setCost] = useState("");
+  const [category, setCategory] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -56,6 +57,7 @@ export default function WarehouseManager() {
           quantity: Number(qty || 0),
           unit: unit || null,
           unit_cost: cost ? Number(cost) : null,
+          category: category || null,
         }),
       });
       const data = await res.json();
@@ -67,6 +69,7 @@ export default function WarehouseManager() {
       setQty("");
       setUnit("");
       setCost("");
+      setCategory("");
       load();
     } finally {
       setAdding(false);
@@ -132,13 +135,21 @@ export default function WarehouseManager() {
           />
           <input className="input" placeholder="الوحدة (كيلو، علبة..)" value={unit} onChange={(e) => setUnit(e.target.value)} />
           <input
-            className="input col-span-2"
+            className="input"
             placeholder="تكلفة الوحدة (اختياري)"
             type="number"
             step="any"
             value={cost}
             onChange={(e) => setCost(e.target.value)}
           />
+          <select className="input col-span-2" value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">التصنيف (اختياري)</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
           {addError && <p className="text-red-600 text-sm col-span-2">{addError}</p>}
           <button className="btn-primary col-span-2" disabled={adding}>
             {adding ? "جارٍ الإضافة..." : "إضافة"}

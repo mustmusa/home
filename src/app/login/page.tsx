@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import type { LoginAccountOption } from "@/lib/types";
+
+const ROLE_LABELS: Record<string, string> = {
+  wife: "مسؤولة بيت",
+  warehouse: "مسؤول المخزن",
+  admin: "أدمن",
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,6 +17,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [accounts, setAccounts] = useState<LoginAccountOption[] | null>(null);
 
   useEffect(() => {
     fetch("/api/setup")
@@ -17,6 +25,12 @@ export default function LoginPage() {
       .then((d) => setSetupOpen(!!d.open))
       .catch(() => {});
   }, []);
+
+  function goTo(role: string) {
+    const dest = role === "wife" ? "/wife" : role === "warehouse" ? "/warehouse" : "/admin";
+    router.push(dest);
+    router.refresh();
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,14 +47,71 @@ export default function LoginPage() {
         setError(data.error ?? "حدث خطأ");
         return;
       }
-      const dest = data.role === "wife" ? "/wife" : data.role === "warehouse" ? "/warehouse" : "/admin";
-      router.push(dest);
-      router.refresh();
+      if (data.chooseAccount) {
+        setAccounts(data.accounts);
+        return;
+      }
+      goTo(data.role);
     } catch {
       setError("تعذّر الاتصال بالخادم");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function chooseAccount(userId: string, role: string) {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, pin, userId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "حدث خطأ");
+        setAccounts(null);
+        return;
+      }
+      goTo(role);
+    } catch {
+      setError("تعذّر الاتصال بالخادم");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (accounts) {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-primary">📒 مصاريف البيت</h1>
+            <p className="text-gray-500 text-sm mt-1">هذا الرقم مرتبط بأكثر من حساب — اختر أي واحد تدخل منه</p>
+          </div>
+          <div className="card flex flex-col gap-2">
+            {accounts.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => chooseAccount(a.id, a.role)}
+                disabled={loading}
+                className="btn-secondary text-right flex items-center justify-between"
+              >
+                <span>{a.name}</span>
+                <span className="text-xs text-gray-500">
+                  {a.role === "wife" ? a.houseName ?? "بيت" : ROLE_LABELS[a.role] ?? a.role}
+                </span>
+              </button>
+            ))}
+          </div>
+          {error && <p className="text-red-600 text-sm text-center mt-3">{error}</p>}
+          <button onClick={() => setAccounts(null)} className="text-center text-sm text-gray-500 mt-4 w-full">
+            ← رجوع
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (

@@ -11,6 +11,8 @@ const ALLOWED_TYPES: Record<string, "image/jpeg" | "image/png" | "image/webp"> =
   "image/webp": "image/webp",
 };
 
+const MAX_IMAGES = 8;
+
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session || session.role !== "admin") {
@@ -18,19 +20,25 @@ export async function POST(req: NextRequest) {
   }
 
   const form = await req.formData();
-  const file = form.get("image");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "لم يتم إرفاق صورة" }, { status: 400 });
+  const files = form.getAll("images").filter((f): f is File => f instanceof File);
+  if (files.length === 0) {
+    return NextResponse.json({ error: "لم يتم إرفاق أي صورة" }, { status: 400 });
+  }
+  if (files.length > MAX_IMAGES) {
+    return NextResponse.json({ error: `الحد الأقصى ${MAX_IMAGES} صور للفاتورة الواحدة` }, { status: 400 });
   }
 
-  const mediaType = ALLOWED_TYPES[file.type];
-  if (!mediaType) {
-    return NextResponse.json({ error: "صيغة الصورة غير مدعومة (JPEG/PNG/WebP فقط)" }, { status: 400 });
-  }
-
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes.byteLength > 15 * 1024 * 1024) {
-    return NextResponse.json({ error: "حجم الصورة كبير جدًا (الحد 15 ميجابايت)" }, { status: 400 });
+  const prepared: { bytes: Uint8Array; mediaType: "image/jpeg" | "image/png" | "image/webp" }[] = [];
+  for (const file of files) {
+    const mediaType = ALLOWED_TYPES[file.type];
+    if (!mediaType) {
+      return NextResponse.json({ error: "صيغة الصورة غير مدعومة (JPEG/PNG/WebP فقط)" }, { status: 400 });
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.byteLength > 15 * 1024 * 1024) {
+      return NextResponse.json({ error: "حجم إحدى الصور كبير جدًا (الحد 15 ميجابايت لكل صورة)" }, { status: 400 });
+    }
+    prepared.push({ bytes, mediaType });
   }
 
   const db = supabaseServer();
@@ -49,25 +57,33 @@ export async function POST(req: NextRequest) {
     house_name: ((r as unknown as { houses: { name: string } | null }).houses?.name) ?? "بيت",
   }));
 
-  const base64 = Buffer.from(bytes).toString("base64");
-
   let lines;
   try {
-    lines = await extractInvoiceLines(base64, mediaType, pendingForMatch);
+    lines = await extractInvoiceLines(
+      prepared.map((p) => ({ base64: Buffer.from(p.bytes).toString("base64"), mediaType: p.mediaType })),
+      pendingForMatch,
+    );
   } catch (e) {
     return NextResponse.json({ error: "تعذّر قراءة الفاتورة: " + errorMessage(e) }, { status: 502 });
   }
 
   const bucket = process.env.SUPABASE_INVOICES_BUCKET ?? "invoices";
-  const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${mediaType.split("/")[1]}`;
+  const datePrefix = new Date().toISOString().slice(0, 10);
+  const invoiceId = crypto.randomUUID();
 
-  const { error: uploadErr } = await db.storage.from(bucket).upload(path, bytes, {
-    contentType: mediaType,
-    upsert: false,
-  });
-  if (uploadErr) {
-    return NextResponse.json({ error: "تعذّر رفع الصورة: " + uploadErr.message }, { status: 500 });
+  const imagePaths: string[] = [];
+  for (let i = 0; i < prepared.length; i++) {
+    const { bytes, mediaType } = prepared[i];
+    const path = `${datePrefix}/${invoiceId}-${i + 1}.${mediaType.split("/")[1]}`;
+    const { error: uploadErr } = await db.storage.from(bucket).upload(path, bytes, {
+      contentType: mediaType,
+      upsert: false,
+    });
+    if (uploadErr) {
+      return NextResponse.json({ error: "تعذّر رفع الصورة: " + uploadErr.message }, { status: 500 });
+    }
+    imagePaths.push(path);
   }
 
-  return NextResponse.json({ lines, imagePath: path, pendingRequests: pendingForMatch });
+  return NextResponse.json({ lines, imagePaths, pendingRequests: pendingForMatch });
 }
