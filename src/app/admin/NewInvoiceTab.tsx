@@ -514,6 +514,16 @@ export default function NewInvoiceTab() {
 
           <p className="text-xs text-gray-500 mb-3">قارن الأرقام مع الصور فوق وصحّح أي خطأ قبل ما تكمل.</p>
 
+          {/* Header row */}
+          <div className="grid grid-cols-1 gap-3 mb-2">
+            <div className="grid grid-cols-4 gap-2 text-xs font-bold text-gray-600 px-1">
+              <div>السعر مع الضريبة (15%)</div>
+              <div>السعر الأساسي</div>
+              <div>الكمية</div>
+              <div>الإجمالي</div>
+            </div>
+          </div>
+
           <div className="flex flex-col gap-3">
             {lines.map((l) => (
               <div key={l.key} className="border border-gray-100 rounded-lg p-3 flex flex-col gap-2">
@@ -527,15 +537,14 @@ export default function NewInvoiceTab() {
                     حذف
                   </button>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    className="input"
-                    placeholder="الكمية"
-                    type="number"
-                    step="any"
-                    value={l.quantity}
-                    onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
-                  />
+                <div className="grid grid-cols-4 gap-2 text-xs">
+                  {/* السعر مع الضريبة - عرض فقط */}
+                  <div className="p-2 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
+                    <span className="font-semibold text-gray-600">
+                      {(parseFloat(l.unit_price) * 1.15).toFixed(2)}
+                    </span>
+                  </div>
+                  {/* السعر الأساسي - قابل للتعديل */}
                   <input
                     className="input"
                     placeholder="سعر الوحدة"
@@ -544,6 +553,16 @@ export default function NewInvoiceTab() {
                     value={l.unit_price}
                     onChange={(e) => updateLine(l.key, { unit_price: e.target.value })}
                   />
+                  {/* الكمية - قابلة للتعديل */}
+                  <input
+                    className="input"
+                    placeholder="الكمية"
+                    type="number"
+                    step="any"
+                    value={l.quantity}
+                    onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
+                  />
+                  {/* الإجمالي - قابل للتعديل */}
                   <input
                     className="input"
                     placeholder="الإجمالي"
@@ -565,7 +584,10 @@ export default function NewInvoiceTab() {
           </div>
 
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
-            <p className="font-bold">الإجمالي: {total.toFixed(2)}</p>
+            <div className="flex flex-col gap-1">
+              <p className="font-bold">الإجمالي (بدون ضريبة): {total.toFixed(2)} ريال</p>
+              <p className="text-sm text-gray-600">مع 15% ضريبة: {(total * 1.15).toFixed(2)} ريال</p>
+            </div>
             <button className="btn-primary" onClick={() => setStep("match")} disabled={lines.length === 0}>
               الأسطر صحيحة، تابع للمطابقة ←
             </button>
@@ -655,7 +677,10 @@ export default function NewInvoiceTab() {
           {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
 
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
-            <p className="font-bold">الإجمالي: {total.toFixed(2)}</p>
+            <div className="flex flex-col gap-1">
+              <p className="font-bold">الإجمالي (بدون ضريبة): {total.toFixed(2)} ريال</p>
+              <p className="text-sm text-gray-600">مع 15% ضريبة: {(total * 1.15).toFixed(2)} ريال</p>
+            </div>
             <button className="btn-primary" onClick={save} disabled={saving}>
               {saving ? "جارٍ الحفظ..." : "تم، احفظ الفاتورة"}
             </button>
