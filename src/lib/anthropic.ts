@@ -87,12 +87,7 @@ type InvoiceImage = {
   mediaType: "image/jpeg" | "image/png" | "image/webp";
 };
 
-/**
- * يقرأ صورة (أو عدة صور لنفس الفاتورة الطويلة) ويستخرج عناصرها كأسطر منفصلة،
- * مع تصنيف كل عنصر واقتراح مطابقته بأحد الطلبات المعلّقة إن أمكن
- * (السطر غير المطابق يُفترض أنه للمخزون).
- */
-export async function extractInvoiceLines(
+async function extractInvoiceLinesSingleCall(
   images: InvoiceImage[],
   pendingRequests: PendingRequestForMatch[],
 ): Promise<ExtractedInvoiceLine[]> {
@@ -172,4 +167,59 @@ ${pendingList || "(لا توجد طلبات معلّقة حاليًا)"}
       category: (CATEGORIES as readonly string[]).includes(l.category ?? "") ? (l.category as string) : "أخرى",
       suggested_request_id: l.suggested_request_id ?? null,
     }));
+}
+
+/** يحذف الأسطر المكرّرة (نفس العنصر ظهر بأكثر من دفعة صور) عبر تمرير نصّي سريع، مع تراجع آمن لو فشل */
+async function dedupeLines(lines: ExtractedInvoiceLine[]): Promise<ExtractedInvoiceLine[]> {
+  if (lines.length <= 1) return lines;
+
+  const prompt = `فيما يلي مصفوفة JSON من أسطر فاتورة استُخرجت من عدة صور لنفس الفاتورة الطويلة (صُوّرت على أجزاء منفصلة). بسبب ذلك، قد يتكرر نفس السطر (نفس اسم العنصر بنفس السعر) أكثر من مرة إذا ظهر في أكثر من صورة.
+
+احذف التكرارات فقط (اترك نسخة واحدة من كل سطر مكرر)، وأعد باقي الأسطر كما هي تمامًا بدون أي تعديل على قيمها أو ترتيبها.
+
+المصفوفة:
+${JSON.stringify(lines)}
+
+أعد فقط مصفوفة JSON نهائية بعد حذف التكرار، بنفس شكل الكائنات بالضبط، بدون أي نص أو شرح إضافي.`;
+
+  try {
+    const response = await client().messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 16000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const deduped = extractJson<ExtractedInvoiceLine[]>(firstText(response));
+    if (Array.isArray(deduped) && deduped.length > 0) return deduped;
+  } catch {
+    // لو فشل تفسير رد التنظيف لأي سبب، نرجع القائمة الأصلية بدل ما نفشل العملية كاملة —
+    // الأدمن يقدر يحذف أي سطر مكرر يدويًا بخطوة المراجعة أصلاً
+  }
+  return lines;
+}
+
+const IMAGES_PER_CALL = 3;
+
+/**
+ * يقرأ صورة (أو عدة صور لنفس الفاتورة الطويلة) ويستخرج عناصرها كأسطر منفصلة،
+ * مع تصنيف كل عنصر واقتراح مطابقته بأحد الطلبات المعلّقة إن أمكن
+ * (السطر غير المطابق يُفترض أنه للمخزون).
+ *
+ * لتفادي انتهاء المهلة المسموحة بالخادم مع عدد صور كبير، نقسّمها لدفعات صغيرة
+ * ونقرأها بالتوازي، ثم نمرّ تمريرة أخيرة سريعة لحذف أي تكرار بين الدفعات.
+ */
+export async function extractInvoiceLines(
+  images: InvoiceImage[],
+  pendingRequests: PendingRequestForMatch[],
+): Promise<ExtractedInvoiceLine[]> {
+  if (images.length <= IMAGES_PER_CALL) {
+    return extractInvoiceLinesSingleCall(images, pendingRequests);
+  }
+
+  const batches: InvoiceImage[][] = [];
+  for (let i = 0; i < images.length; i += IMAGES_PER_CALL) {
+    batches.push(images.slice(i, i + IMAGES_PER_CALL));
+  }
+
+  const results = await Promise.all(batches.map((batch) => extractInvoiceLinesSingleCall(batch, pendingRequests)));
+  return dedupeLines(results.flat());
 }
