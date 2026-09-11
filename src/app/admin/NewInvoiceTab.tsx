@@ -80,6 +80,7 @@ export default function NewInvoiceTab() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [processingStatus, setProcessingStatus] = useState<string>("");
+  const [progressPercent, setProgressPercent] = useState(0);
 
   // الصور المتجمّعة قبل الإرسال (تصوير مباشر متكرر و/أو اختيار من المعرض معًا)
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -156,6 +157,7 @@ export default function NewInvoiceTab() {
       if (overBudget) {
         setError("عدد/حجم الصور كبير جدًا حتى بعد الضغط — قسّم الفاتورة على مجموعتين وارفعهم كفاتورتين منفصلتين");
         setProcessingStatus("");
+        setProgressPercent(0);
         setParsing(false);
         return;
       }
@@ -166,7 +168,21 @@ export default function NewInvoiceTab() {
       setPendingFiles([]);
       setPendingPreviews([]);
 
-      setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي...`);
+      setProgressPercent(0);
+      const batchCount = Math.ceil(files.length / 3);
+      const estimatedSecondsPerBatch = 8;
+      const totalEstimatedSeconds = batchCount * estimatedSecondsPerBatch;
+
+      setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (0%)`);
+
+      const startTime = Date.now();
+      const progressInterval = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const estimatedProgress = Math.min(95, Math.round((elapsed / totalEstimatedSeconds) * 100));
+        setProgressPercent(estimatedProgress);
+        setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (${estimatedProgress}% - الدفعة ~${Math.min(batchCount, Math.ceil((estimatedProgress / 100) * batchCount))} من ${batchCount})`);
+      }, 500);
+
       const form = new FormData();
       for (const f of files) form.append("images", f);
       const controller = new AbortController();
@@ -180,6 +196,7 @@ export default function NewInvoiceTab() {
           signal: controller.signal,
         });
       } finally {
+        clearInterval(progressInterval);
         clearTimeout(timeoutId);
       }
 
@@ -216,6 +233,7 @@ export default function NewInvoiceTab() {
         urls.forEach((u) => URL.revokeObjectURL(u));
         setPreviewUrls([]);
         setProcessingStatus("");
+        setProgressPercent(0);
         return;
       }
 
@@ -226,6 +244,7 @@ export default function NewInvoiceTab() {
         urls.forEach((u) => URL.revokeObjectURL(u));
         setPreviewUrls([]);
         setProcessingStatus("");
+        setProgressPercent(0);
         return;
       }
 
@@ -251,8 +270,13 @@ export default function NewInvoiceTab() {
         },
       );
       setLines(editable);
-      setProcessingStatus("");
-      setSuccess(`تم قراءة الفاتورة بنجاح ✅ (${editable.length} سطر)`);
+      setProgressPercent(100);
+      setProcessingStatus(`تم قراءة الفاتورة بنجاح ✅ (${editable.length} سطر) - 100%`);
+      setTimeout(() => {
+        setProcessingStatus("");
+        setProgressPercent(0);
+        setSuccess(`تم قراءة الفاتورة بنجاح ✅ (${editable.length} سطر)`);
+      }, 1500);
       setStep("review");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "خطأ غير معروف";
@@ -264,6 +288,7 @@ export default function NewInvoiceTab() {
       urls.forEach((u) => URL.revokeObjectURL(u));
       setPreviewUrls([]);
       setProcessingStatus("");
+      setProgressPercent(0);
     } finally {
       setParsing(false);
     }
@@ -374,7 +399,14 @@ export default function NewInvoiceTab() {
 
           {processingStatus && (
             <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800 font-medium">{processingStatus}</p>
+              <p className="text-sm text-blue-800 font-medium mb-2">{processingStatus}</p>
+              <div className="w-full bg-blue-200 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-blue-600 h-full rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <p className="text-xs text-blue-700 mt-1">{progressPercent}% مكتمل</p>
             </div>
           )}
 
