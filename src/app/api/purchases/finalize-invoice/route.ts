@@ -205,11 +205,13 @@ ${itemsList}
     console.error(`فشل التحقق من البيانات المستخرجة`);
   }
 
-  // احفظ الشراء الجديد (total_amount بدون ضريبة)
+  // احفظ الشراء الجديد
+  const totalWithTax = Math.round(total * 1.15 * 100) / 100;
   const { data: purchaseData, error: purchaseErr } = await db
     .from("purchases")
     .insert({
       total_amount: total,
+      total_with_tax: totalWithTax,
       invoice_image_paths: allImagePaths,
     })
     .select("id")
@@ -219,19 +221,27 @@ ${itemsList}
     return NextResponse.json({ error: "فشل حفظ الشراء: " + purchaseErr?.message }, { status: 500 });
   }
 
-  // احفظ أسطر الشراء (line_total بدون ضريبة - الضريبة 15% ثابتة)
-  const linesToInsert = dedupedLines.map((line) => ({
-    purchase_id: purchaseData.id,
-    item_name: line.item_name,
-    quantity: line.quantity,
-    unit_price: line.unit_price,
-    line_total: line.line_total,
-    destination: line.suggested_request_id ? "house" : "warehouse",
-    house_id: line.suggested_request_id ? pendingForMatch.find((p) => p.id === line.suggested_request_id)?.house_id : null,
-    matched_request_id: line.suggested_request_id,
-    source: "invoice",
-    category: line.category,
-  }));
+  // احفظ أسطر الشراء (مع حساب الضريبة 15% لكل سطر)
+  const linesToInsert = dedupedLines.map((line) => {
+    const lineTotal = line.line_total || 0;
+    const taxAmount = Math.round(lineTotal * 0.15 * 100) / 100;
+    const lineWithTax = Math.round((lineTotal + taxAmount) * 100) / 100;
+
+    return {
+      purchase_id: purchaseData.id,
+      item_name: line.item_name,
+      quantity: line.quantity,
+      unit_price: line.unit_price,
+      line_total: lineTotal,
+      tax_amount: taxAmount,
+      total_with_tax: lineWithTax,
+      destination: line.suggested_request_id ? "house" : "warehouse",
+      house_id: line.suggested_request_id ? pendingForMatch.find((p) => p.id === line.suggested_request_id)?.house_id : null,
+      matched_request_id: line.suggested_request_id,
+      source: "invoice",
+      category: line.category,
+    };
+  });
 
   const { error: linesErr } = await db.from("purchase_lines").insert(linesToInsert);
   if (linesErr) {
