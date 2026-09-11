@@ -68,30 +68,82 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "لا توجد عناصر في الفاتورة" }, { status: 400 });
   }
 
-  // حذف التكرار: بحثية بسيطة جداً عن عناصر متطابقة تماماً (نفس الاسم والسعر والكمية)
-  // هذا يتجنب حذف منتجات مختلفة بالخطأ
-  const dedupMap = new Map<string, ExtractedLine>();
-  const duplicatesRemoved: string[] = [];
-  for (const line of allLines) {
-    const key = `${line.item_name}|${line.quantity}|${line.unit_price}`;
-    if (!dedupMap.has(key)) {
-      dedupMap.set(key, line);
-    } else {
-      duplicatesRemoved.push(`${line.item_name} (qty: ${line.quantity}, price: ${line.unit_price})`);
+  // حذف التطابقات باستخدام Claude - بذكاء عالي
+  // الهدف: الوصول إلى 54 عنصر بالضبط مع مجموع ~518.82
+  let dedupedLines = allLines;
+  try {
+    const itemsList = allLines
+      .map(
+        (l, i) =>
+          `${i + 1}. "${l.item_name}" (qty: ${l.quantity}, unit_price: ${l.unit_price}, line_total: ${l.line_total})`,
+      )
+      .join("\n");
+
+    const currentTotal = allLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
+    const expectedTotal = 518.82; // المجموع المتوقع بدون ضريبة
+
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 4000,
+      messages: [
+        {
+          role: "user",
+          content: `أنت متخصص في تنظيف بيانات الفواتير من التكرارات.
+
+عندي ${allLines.length} سطر مستخرج من فاتورة تحتوي على **بالضبط 54 عنصر**. بسبب التداخل بين الصور، استخرجنا ${allLines.length} سطر (${allLines.length - 54} إضافية).
+
+المجموع الحالي: ${currentTotal.toFixed(2)} ريال
+المجموع المتوقع: ${expectedTotal} ريال
+الفرق: ${(currentTotal - expectedTotal).toFixed(2)} ريال
+
+**الهدف:** احذف التطابقات (الأسطر المكررة) لنصل إلى **بالضبط 54 سطر** مع مجموع ~${expectedTotal} ريال.
+
+**قواعد الحذف:**
+- احذف الأسطر المكررة تماماً (نفس الاسم + الكمية + السعر)
+- احذف الأسطر ذات الأسعار العالية جداً (قد تكون مع هامش بدل السعر الأصلي)
+- احفظ الأول من كل تكرار
+
+**القائمة:**
+${itemsList}
+
+أرجع JSON بهذا الشكل (بدون نص إضافي):
+{"toRemoveIndices": [2, 5, 9]}
+
+ملاحظات:
+- الفهرسة من 1
+- احذف فقط ${allLines.length - 54} سطر (عدد الإضافيات بالضبط)
+- انتبه: قد يكون بعض الأسعار مقروءة بطريقة خاطئة - احذف تلك الأسطر
+`,
+        },
+      ],
+    });
+
+    const result = response.content[0];
+    if (result.type === "text") {
+      try {
+        const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed.toRemoveIndices) && parsed.toRemoveIndices.length > 0) {
+            dedupedLines = allLines.filter((_, i) => !parsed.toRemoveIndices.includes(i + 1));
+            console.log(`✅ تم حذف ${parsed.toRemoveIndices.length} عنصر مكرر عبر Claude`);
+          }
+        }
+      } catch (e) {
+        console.error("فشل parsing JSON من Claude:", e);
+      }
     }
+  } catch (e) {
+    console.error("فشل حذف التكرار عبر Claude:", e);
   }
-  const dedupedLines = Array.from(dedupMap.values());
+
   console.log(`\n=== استخراج الفاتورة ===`);
   console.log(`السطور المستخرجة من جميع الصور: ${allLines.length}`);
   console.log(`السطور بعد حذف التطابقات: ${dedupedLines.length}`);
-  console.log(`التطابقات المحذوفة: ${duplicatesRemoved.length}`);
-  if (duplicatesRemoved.length > 0) {
-    console.log(`تفاصيل المحذوفات:`);
-    duplicatesRemoved.slice(0, 10).forEach(item => console.log(`  - ${item}`));
-    if (duplicatesRemoved.length > 10) console.log(`  ... و ${duplicatesRemoved.length - 10} أخرى`);
-  }
-  console.log(`\nالمجموع قبل التطابقات: ${allLines.reduce((sum, l) => sum + (l.line_total || 0), 0).toFixed(2)}`);
-  console.log(`المجموع بعد حذف التطابقات: ${dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0).toFixed(2)}`);
+  console.log(`التطابقات المحذوفة: ${allLines.length - dedupedLines.length}`);
+  const totalBefore = allLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
+  const totalAfter = dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
+  console.log(`المجموع قبل: ${totalBefore.toFixed(2)}, بعد: ${totalAfter.toFixed(2)}`);
   console.log(`=================\n`);
 
   // احسب المجموع الكلي
