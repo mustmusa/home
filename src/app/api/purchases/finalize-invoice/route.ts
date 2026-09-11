@@ -29,6 +29,21 @@ export async function POST(req: NextRequest) {
 
   const db = supabaseServer();
 
+  // احصل على الطلبات المعلقة لمطابقة الأسماء
+  const { data: pending, error: pendingErr } = await db
+    .from("requests")
+    .select("id, item_name, quantity_text, house_id, houses(name)")
+    .eq("status", "pending");
+  if (pendingErr) return NextResponse.json({ error: pendingErr.message }, { status: 500 });
+
+  const pendingForMatch = (pending ?? []).map((r) => ({
+    id: r.id as string,
+    item_name: r.item_name as string,
+    quantity_text: r.quantity_text as string | null,
+    house_id: r.house_id as string,
+    house_name: ((r as unknown as { houses: { name: string } | null }).houses?.name) ?? "بيت",
+  }));
+
   // احصل على جميع الدفعات
   const { data: batches, error: batchesErr } = await db
     .from("temp_invoice_batches")
@@ -102,6 +117,7 @@ ${linesList}`,
     success: true,
     lines: dedupedLines,
     imagePaths: allImagePaths,
+    pendingRequests: pendingForMatch,
     summary: {
       totalItems: itemCount,
       originalItems: allLines.length,

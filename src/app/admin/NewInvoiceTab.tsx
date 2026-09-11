@@ -304,12 +304,13 @@ export default function NewInvoiceTab() {
       };
 
       setImagePaths(data.imagePaths ?? []);
-      setPending(data.pendingRequests ?? []);
+      const pendingRequests = data.pendingRequests ?? [];
+      setPending(pendingRequests);
 
       const editable: EditableLine[] = (data.lines ?? []).map(
         (l: ExtractedLine, idx: number) => {
-          const matched = l.suggested_request_id
-            ? (data.pendingRequests as PendingForMatch[]).find((p) => p.id === l.suggested_request_id)
+          const matched = l.suggested_request_id && pendingRequests.length > 0
+            ? pendingRequests.find((p: PendingForMatch) => p.id === l.suggested_request_id)
             : null;
           return {
             key: String(idx),
