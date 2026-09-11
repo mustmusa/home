@@ -68,61 +68,66 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "لا توجد عناصر في الفاتورة" }, { status: 400 });
   }
 
-  // حذف التكرار باستخدام خوارزمية ذكية تعرّف العناصر المتشابهة
-  function normalizeText(text: string): string {
-    return text
-      .toLowerCase()
-      .replace(/[-—–]/g, " ") // حول الدشات لمسافات
-      .replace(/\s+/g, " ") // دمج المسافات المتعددة
-      .replace(/[^\w؀-ۿ\s]/g, "") // حذف الرموز الخاصة
-      .trim();
-  }
-
-  function calculateSimilarity(a: string, b: string): number {
-    const normA = normalizeText(a);
-    const normB = normalizeText(b);
-    if (normA === normB) return 1;
-
-    const longer = normA.length > normB.length ? normA : normB;
-    const shorter = normA.length > normB.length ? normB : normA;
-
-    if (longer.includes(shorter)) return 0.95;
-
-    let matches = 0;
-    for (let i = 0; i < shorter.length; i++) {
-      if (longer.includes(shorter[i])) matches++;
-    }
-    return matches / longer.length;
-  }
-
+  // حذف التكرار باستخدام Claude - الطريقة الذكية جداً
   let dedupedLines = allLines;
-  const toRemoveIndices = new Set<number>();
+  try {
+    const itemsList = allLines
+      .map(
+        (l, i) =>
+          `${i + 1}. "${l.item_name}" (الكمية: ${l.quantity}, السعر: ${l.unit_price}, المجموع: ${l.line_total})`,
+      )
+      .join("\n");
 
-  for (let i = 0; i < allLines.length; i++) {
-    if (toRemoveIndices.has(i)) continue;
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 4000,
+      messages: [
+        {
+          role: "user",
+          content: `أنت متخصص في تحديد العناصر المكررة في الفواتير بدقة عالية.
 
-    const current = allLines[i];
-    for (let j = i + 1; j < allLines.length; j++) {
-      if (toRemoveIndices.has(j)) continue;
+عندي قائمة عناصر من فاتورة مستخرجة من 11 صورة (قد تحتوي تكرارات من التداخل بين الصور).
 
-      const next = allLines[j];
-      const similarity = calculateSimilarity(current.item_name, next.item_name);
+اقرأ كل عنصرين بعناية وحدد أيهم التكرارات الفعلية (نفس المنتج بالفعل، مو منتجات مختلفة).
 
-      // إذا العناصر متشابهة جداً (90%+) والسعر والكمية متقاربة، هي تكرار
-      if (similarity > 0.9) {
-        const priceDiff = Math.abs((current.unit_price || 0) - (next.unit_price || 0));
-        const qtyMatch = current.quantity === next.quantity;
+معايير التكرار:
+- نفس اسم المنتج بصيغ مختلفة (مع/بدون انجليزي، مع/بدون دشات)
+- نفس الكمية
+- نفس أو قريب جداً السعر
+- مثال: "اولكر بيسكويت تشوكو" و "اولكر بيسكويت تشوكو - ULKER CHO" = تكرار
 
-        if (qtyMatch && priceDiff < 0.1) {
-          toRemoveIndices.add(j); // احذف النسخة الثانية
+أرجع JSON بهذا الشكل (بدون نص إضافي):
+{"toRemoveIndices": [2, 5, 9]}
+
+ملاحظات مهمة:
+- الفهرسة من 1 (الأول = 1)
+- احذف فقط النسخة الثانية من كل تكرار (احفظ الأول)
+- إذا لم يكن هناك تكرار: {"toRemoveIndices": []}
+- كن دقيقاً جداً - لا تحذف منتجات مختلفة حتى لو كانت متشابهة الاسم
+
+القائمة:
+${itemsList}`,
+        },
+      ],
+    });
+
+    const result = response.content[0];
+    if (result.type === "text") {
+      try {
+        const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed.toRemoveIndices) && parsed.toRemoveIndices.length > 0) {
+            dedupedLines = allLines.filter((_, i) => !parsed.toRemoveIndices.includes(i + 1));
+            console.log(`تم حذف ${parsed.toRemoveIndices.length} عنصر مكرر عبر Claude`);
+          }
         }
+      } catch (e) {
+        console.error("فشل parsing JSON من Claude:", e);
       }
     }
-  }
-
-  if (toRemoveIndices.size > 0) {
-    dedupedLines = allLines.filter((_, i) => !toRemoveIndices.has(i));
-    console.log(`تم حذف ${toRemoveIndices.size} عنصر مكرر بذكاء`);
+  } catch (e) {
+    console.error("فشل حذف التكرار عبر Claude:", e);
   }
 
   // احسب المجموع الكلي والتحقق من الخصومات
