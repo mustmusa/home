@@ -197,7 +197,7 @@ ${JSON.stringify(lines)}
   return lines;
 }
 
-const IMAGES_PER_CALL = 3;
+const IMAGES_PER_CALL = 2;
 
 /**
  * يقرأ صورة (أو عدة صور لنفس الفاتورة الطويلة) ويستخرج عناصرها كأسطر منفصلة،
