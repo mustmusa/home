@@ -171,16 +171,23 @@ export default function NewInvoiceTab() {
       setProgressPercent(0);
       const batchCount = Math.ceil(files.length / 3);
       const estimatedSecondsPerBatch = 8;
-      const totalEstimatedSeconds = batchCount * estimatedSecondsPerBatch;
+      const dedupeSeconds = 5;
+      const totalEstimatedSeconds = (batchCount * estimatedSecondsPerBatch) + dedupeSeconds;
 
       setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (0%)`);
 
       const startTime = Date.now();
       const progressInterval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;
-        const estimatedProgress = Math.min(95, Math.round((elapsed / totalEstimatedSeconds) * 100));
+        const estimatedProgress = Math.min(99, Math.round((elapsed / totalEstimatedSeconds) * 100));
         setProgressPercent(estimatedProgress);
-        setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (${estimatedProgress}% - الدفعة ~${Math.min(batchCount, Math.ceil((estimatedProgress / 100) * batchCount))} من ${batchCount})`);
+
+        if (estimatedProgress > 85) {
+          setProcessingStatus(`جارٍ حذف الأسطر المكرّرة... (${estimatedProgress}%)`);
+        } else {
+          const currentBatch = Math.min(batchCount, Math.ceil((estimatedProgress / 100) * batchCount));
+          setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (${estimatedProgress}% - الدفعة ${currentBatch} من ${batchCount})`);
+        }
       }, 500);
 
       const form = new FormData();
