@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import PendingRequestsTab from "./PendingRequestsTab";
+import RequestHistoryTab from "./RequestHistoryTab";
 import NewInvoiceTab from "./NewInvoiceTab";
 import ReportsTab from "./ReportsTab";
 import UsersTab from "./UsersTab";
@@ -9,6 +10,7 @@ import WarehouseManager from "@/components/WarehouseManager";
 
 const TABS = [
   { id: "pending", label: "الطلبات المعلّقة" },
+  { id: "history", label: "سجل الطلبات" },
   { id: "invoice", label: "فاتورة جديدة" },
   { id: "warehouse", label: "المخزون" },
   { id: "reports", label: "التقارير" },
@@ -37,6 +39,7 @@ export default function AdminDashboard() {
       </nav>
 
       {tab === "pending" && <PendingRequestsTab />}
+      {tab === "history" && <RequestHistoryTab />}
       {tab === "invoice" && <NewInvoiceTab />}
       {tab === "warehouse" && <WarehouseManager />}
       {tab === "reports" && <ReportsTab />}
