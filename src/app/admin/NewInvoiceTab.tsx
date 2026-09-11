@@ -23,7 +23,7 @@ type EditableLine = {
   matched_request_id: string;
 };
 
-type Step = "upload" | "review" | "match";
+type Step = "upload" | "processing" | "review" | "match";
 
 /** أقصى حجم إجمالي مسموح لطلب واحد (هامش أمان تحت حد الخادم 4.5MB) */
 const MAX_TOTAL_BYTES = 3.8 * 1024 * 1024;
@@ -82,6 +82,11 @@ export default function NewInvoiceTab() {
   const [processingStatus, setProcessingStatus] = useState<string>("");
   const [progressPercent, setProgressPercent] = useState(0);
 
+  // النموذج الجديد: دفعات متعددة
+  const [sessionId] = useState(() => crypto.randomUUID());
+  const [uploadedBatches, setUploadedBatches] = useState<number>(0);
+  const [totalExtractedLines, setTotalExtractedLines] = useState<number>(0);
+
   // الصور المتجمّعة قبل الإرسال (تصوير مباشر متكرر و/أو اختيار من المعرض معًا)
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
@@ -114,6 +119,8 @@ export default function NewInvoiceTab() {
     setStep("upload");
     setError(null);
     setSuccess(null);
+    setUploadedBatches(0);
+    setTotalExtractedLines(0);
   }
 
   function addPendingFiles(newFiles: File[]) {
@@ -141,7 +148,7 @@ export default function NewInvoiceTab() {
     setPendingPreviews((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function submitInvoice() {
+  async function uploadBatch() {
     const rawFiles = pendingFiles;
     if (rawFiles.length === 0) return;
     setError(null);
@@ -150,54 +157,39 @@ export default function NewInvoiceTab() {
     setParsing(true);
 
     let files: File[] = rawFiles;
-    let urls: string[] = [];
     try {
       setProcessingStatus("جارٍ ضغط الصور...");
       const { files: compressed, overBudget } = await compressToBudget(rawFiles);
       if (overBudget) {
-        setError("عدد/حجم الصور كبير جدًا حتى بعد الضغط — قسّم الفاتورة على مجموعتين وارفعهم كفاتورتين منفصلتين");
+        setError("عدد/حجم الصور كبير جدًا حتى بعد الضغط — استخدم صور أقل لكل دفعة");
         setProcessingStatus("");
         setProgressPercent(0);
         setParsing(false);
         return;
       }
       files = compressed;
-      urls = files.map((f) => URL.createObjectURL(f));
-      setPreviewUrls(urls);
-      pendingPreviews.forEach((u) => URL.revokeObjectURL(u));
-      setPendingFiles([]);
-      setPendingPreviews([]);
 
       setProgressPercent(0);
-      const batchCount = Math.ceil(files.length / 2);
-      const estimatedSeconds = batchCount * 4 + 5;
-
-      setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (0%)`);
+      setProcessingStatus(`جارٍ رفع دفعة ${uploadedBatches + 1}...`);
 
       const startTime = Date.now();
-      let currentProgress = 0;
       const progressInterval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;
-        // تقدم بطيء جداً - 1% كل ثانية حتى 90% (تجنب الوصول للنهاية قبل الانتهاء الفعلي)
-        currentProgress = Math.min(90, Math.round(elapsed * 1));
+        const currentProgress = Math.min(90, Math.round(elapsed * 1.5));
         setProgressPercent(currentProgress);
-
-        if (currentProgress > 75) {
-          setProcessingStatus(`جارٍ حذف الأسطر المكرّرة... (${currentProgress}%)`);
-        } else {
-          const currentBatch = Math.min(batchCount, Math.max(1, Math.ceil((currentProgress / 90) * batchCount)));
-          setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (${currentProgress}% - الدفعة ${currentBatch} من ${batchCount})`);
-        }
       }, 500);
 
       const form = new FormData();
       for (const f of files) form.append("images", f);
+      form.append("sessionId", sessionId);
+      form.append("batchNumber", String(uploadedBatches + 1));
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 65000);
 
       let res: Response;
       try {
-        res = await fetch("/api/purchases/parse-invoice", {
+        res = await fetch("/api/purchases/batch-upload", {
           method: "POST",
           body: form,
           signal: controller.signal,
@@ -205,6 +197,101 @@ export default function NewInvoiceTab() {
       } finally {
         clearInterval(progressInterval);
         clearTimeout(timeoutId);
+      }
+
+      type BatchResponse = {
+        error?: string;
+        success?: boolean;
+        batchNumber?: number;
+        lineCount?: number;
+        imagePaths?: string[];
+      };
+      let data: BatchResponse;
+
+      if (!res.ok) {
+        let errorMsg = "حدث خطأ غير متوقع";
+        try {
+          data = await res.json();
+          errorMsg = data.error ?? errorMsg;
+        } catch {
+          if (res.status === 413) {
+            errorMsg = "الصور كبيرة جدًا حتى بعد الضغط — جرّب صور أقل";
+          } else if (res.status === 504 || res.status === 408) {
+            errorMsg = "انتهت مهلة الخادم — جرّب صور أقل لكل دفعة";
+          } else {
+            errorMsg = `خطأ من الخادم (${res.status})`;
+          }
+        }
+        setError(errorMsg);
+        setProcessingStatus("");
+        setProgressPercent(0);
+        return;
+      }
+
+      try {
+        data = await res.json();
+      } catch (e) {
+        setError("تعذّر فهم رد الخادم");
+        setProcessingStatus("");
+        setProgressPercent(0);
+        return;
+      }
+
+      if (data.success) {
+        const newBatchCount = uploadedBatches + 1;
+        const newLineCount = totalExtractedLines + (data.lineCount ?? 0);
+        setUploadedBatches(newBatchCount);
+        setTotalExtractedLines(newLineCount);
+        setPendingFiles([]);
+        setPendingPreviews([]);
+
+        setProgressPercent(100);
+        setProcessingStatus(`✅ تم رفع الدفعة ${newBatchCount} (${data.lineCount} سطر)`);
+        setTimeout(() => {
+          setProcessingStatus("");
+          setProgressPercent(0);
+          setSuccess(`تم رفع الدفعة ${newBatchCount} بنجاح ✅`);
+        }, 1500);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "خطأ غير معروف";
+      if (msg.includes("abort")) {
+        setError("انقطع الاتصال — جرّب مرة أخرى");
+      } else {
+        setError(`تعذّر الاتصال بالخادم: ${msg}`);
+      }
+      setProcessingStatus("");
+      setProgressPercent(0);
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  async function finalizeInvoice() {
+    if (uploadedBatches === 0) {
+      setError("لم ترفع أي دفعات حتى الآن");
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setProcessingStatus("جارٍ معالجة الفاتورة الكاملة...");
+    setParsing(true);
+    setStep("processing");
+
+    try {
+      const res = await fetch("/api/purchases/finalize-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "حدث خطأ");
+        setStep("upload");
+        setProcessingStatus("");
+        return;
       }
 
       type ExtractedLine = {
@@ -215,45 +302,6 @@ export default function NewInvoiceTab() {
         category: string | null;
         suggested_request_id: string | null;
       };
-      let data: {
-        error?: string;
-        imagePaths?: string[];
-        pendingRequests?: PendingForMatch[];
-        lines?: ExtractedLine[];
-      };
-
-      if (!res.ok) {
-        let errorMsg = "حدث خطأ غير متوقع";
-        try {
-          data = await res.json();
-          errorMsg = data.error ?? errorMsg;
-        } catch {
-          if (res.status === 413) {
-            errorMsg = "الصور كبيرة جدًا حتى بعد الضغط — جرّب صور أقل أو صور أوضح بدقة أقل";
-          } else if (res.status === 504 || res.status === 408) {
-            errorMsg = "انتهت مهلة الخادم — جرّب صور أقل أو اقسم الفاتورة على مجموعتين";
-          } else {
-            errorMsg = `خطأ من الخادم (${res.status})`;
-          }
-        }
-        setError(errorMsg);
-        urls.forEach((u) => URL.revokeObjectURL(u));
-        setPreviewUrls([]);
-        setProcessingStatus("");
-        setProgressPercent(0);
-        return;
-      }
-
-      try {
-        data = await res.json();
-      } catch (e) {
-        setError("تعذّر فهم رد الخادم — قد تكون الفاتورة كبيرة جدًا أو الخادم مشغول");
-        urls.forEach((u) => URL.revokeObjectURL(u));
-        setPreviewUrls([]);
-        setProcessingStatus("");
-        setProgressPercent(0);
-        return;
-      }
 
       setImagePaths(data.imagePaths ?? []);
       setPending(data.pendingRequests ?? []);
@@ -277,25 +325,17 @@ export default function NewInvoiceTab() {
         },
       );
       setLines(editable);
-      setProgressPercent(100);
-      setProcessingStatus(`تم قراءة الفاتورة بنجاح ✅ (${editable.length} سطر) - 100%`);
-      setTimeout(() => {
-        setProcessingStatus("");
-        setProgressPercent(0);
-        setSuccess(`تم قراءة الفاتورة بنجاح ✅ (${editable.length} سطر)`);
-      }, 1500);
+
+      setProcessingStatus("");
+      setSuccess(
+        `تم معالجة الفاتورة ✅\n• الدفعات: ${uploadedBatches}\n• العناصر المستخرجة: ${data.summary.originalItems}\n• المحذوف (تكرار): ${data.summary.removedDuplicates}\n• الأسطر النهائية: ${editable.length}`,
+      );
       setStep("review");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "خطأ غير معروف";
-      if (msg.includes("abort")) {
-        setError("انقطع الاتصال أثناء القراءة — جرّب صور أقل أو حاول مرة أخرى");
-      } else {
-        setError(`تعذّر الاتصال بالخادم: ${msg}`);
-      }
-      urls.forEach((u) => URL.revokeObjectURL(u));
-      setPreviewUrls([]);
+      setError(`تعذّر الاتصال بالخادم: ${msg}`);
+      setStep("upload");
       setProcessingStatus("");
-      setProgressPercent(0);
     } finally {
       setParsing(false);
     }
@@ -351,9 +391,15 @@ export default function NewInvoiceTab() {
         <section className="card">
           <h2 className="font-bold mb-3">تصوير فاتورة جديدة</h2>
           <p className="text-xs text-gray-500 mb-3">
-            صوّر بالكاميرا مباشرة (تقدر تكرر التصوير لو الفاتورة طويلة على أكثر من صورة)، أو اختر صور جاهزة من
-            المعرض — أو الاثنين مع بعض. رتّب الصور بنفس ترتيب الفاتورة قبل ما تضغط "قراءة الفاتورة".
+            صوّر الصور دفعة تلو الأخرى (كل دفعة 2-3 صور)، ثم اضغط "رفع الدفعة". كمّل حتى تنتهي من الفاتورة كاملة،
+            ثم اضغط "انتهيت من الصور" ليقوم النظام بمعالجة الفاتورة والتحقق من البيانات.
           </p>
+
+          {uploadedBatches > 0 && (
+            <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-sm text-green-800">✅ تم رفع {uploadedBatches} دفعة ({totalExtractedLines} سطر)</p>
+            </div>
+          )}
 
           <input
             ref={cameraInputRef}
@@ -399,8 +445,20 @@ export default function NewInvoiceTab() {
           )}
 
           {pendingFiles.length > 0 && (
-            <button className="btn-primary w-full mt-4" onClick={submitInvoice} disabled={parsing}>
-              {parsing ? "جارٍ قراءة الفاتورة..." : `قراءة الفاتورة (${pendingFiles.length} صورة)`}
+            <button className="btn-primary w-full mt-4" onClick={uploadBatch} disabled={parsing}>
+              {parsing ? "جارٍ الرفع..." : `رفع الدفعة (${pendingFiles.length} صورة)`}
+            </button>
+          )}
+
+          {uploadedBatches > 0 && (
+            <button className="btn-primary w-full mt-2" onClick={finalizeInvoice} disabled={parsing || pendingFiles.length > 0}>
+              {parsing ? "جارٍ المعالجة..." : "✅ انتهيت من الصور - معالجة الفاتورة"}
+            </button>
+          )}
+
+          {uploadedBatches > 0 && (
+            <button className="text-xs text-gray-500 w-full mt-2" onClick={resetAll}>
+              إلغاء والبدء من جديد
             </button>
           )}
 
@@ -419,6 +477,19 @@ export default function NewInvoiceTab() {
 
           {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
           {success && <p className="text-emerald-600 text-sm mt-2">{success}</p>}
+        </section>
+      )}
+
+      {step === "processing" && (
+        <section className="card">
+          <h2 className="font-bold mb-3">معالجة الفاتورة الكاملة</h2>
+          <div className="text-center py-8">
+            <p className="text-gray-600 mb-4">{processingStatus}</p>
+            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+              <div className="bg-blue-600 h-full rounded-full animate-pulse" style={{ width: "100%" }} />
+            </div>
+            <p className="text-xs text-gray-500 mt-3">جارٍ دمج البيانات وحذف التكرار...</p>
+          </div>
         </section>
       )}
 
