@@ -170,23 +170,22 @@ export default function NewInvoiceTab() {
 
       setProgressPercent(0);
       const batchCount = Math.ceil(files.length / 3);
-      const estimatedSecondsPerBatch = 8;
-      const dedupeSeconds = 5;
-      const totalEstimatedSeconds = (batchCount * estimatedSecondsPerBatch) + dedupeSeconds;
 
       setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (0%)`);
 
       const startTime = Date.now();
+      let currentProgress = 0;
       const progressInterval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;
-        const estimatedProgress = Math.min(99, Math.round((elapsed / totalEstimatedSeconds) * 100));
-        setProgressPercent(estimatedProgress);
+        // تقدم ببطء - كل ثانية تضيف ~2% حتى الوصول لـ 85%
+        currentProgress = Math.min(85, Math.round(elapsed * 2));
+        setProgressPercent(currentProgress);
 
-        if (estimatedProgress > 85) {
-          setProcessingStatus(`جارٍ حذف الأسطر المكرّرة... (${estimatedProgress}%)`);
+        if (currentProgress > 70) {
+          setProcessingStatus(`جارٍ حذف الأسطر المكرّرة... (${currentProgress}%)`);
         } else {
-          const currentBatch = Math.min(batchCount, Math.ceil((estimatedProgress / 100) * batchCount));
-          setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (${estimatedProgress}% - الدفعة ${currentBatch} من ${batchCount})`);
+          const currentBatch = Math.min(batchCount, Math.max(1, Math.ceil((currentProgress / 85) * batchCount)));
+          setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (${currentProgress}% - الدفعة ${currentBatch} من ${batchCount})`);
         }
       }, 500);
 
