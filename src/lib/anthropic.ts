@@ -220,6 +220,17 @@ export async function extractInvoiceLines(
     batches.push(images.slice(i, i + IMAGES_PER_CALL));
   }
 
-  const results = await Promise.all(batches.map((batch) => extractInvoiceLinesSingleCall(batch, pendingRequests)));
+  // معالجة الدفعات بالتتابع بدل التوازي لتجنب مشاكل التوقيت والحد الأقصى
+  // (الدفعات المتوازية قد تتجاوز حد الانتظار، خاصة مع عدد كبير من الصور)
+  const results: ExtractedInvoiceLine[][] = [];
+  for (let i = 0; i < batches.length; i++) {
+    try {
+      const batchResult = await extractInvoiceLinesSingleCall(batches[i], pendingRequests);
+      results.push(batchResult);
+    } catch (error) {
+      throw new Error(`فشلت قراءة الدفعة ${i + 1} من ${batches.length}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   return dedupeLines(results.flat());
 }
