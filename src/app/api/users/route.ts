@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "بيانات ناقصة أو غير صالحة" }, { status: 400 });
   }
   if (role === "wife" && !houseId) {
-    return NextResponse.json({ error: "يجب تحديد البيت لحساب الزوجة" }, { status: 400 });
+    return NextResponse.json({ error: "يجب تحديد البيت المرتبط بهذا الحساب" }, { status: 400 });
   }
 
   const pin_hash = await hashPin(pin);

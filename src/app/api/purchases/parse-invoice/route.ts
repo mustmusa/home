@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
 import { extractInvoiceLines } from "@/lib/anthropic";
+import { errorMessage } from "@/lib/errors";
 
 const ALLOWED_TYPES: Record<string, "image/jpeg" | "image/png" | "image/webp"> = {
   "image/jpeg": "image/jpeg",
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
   try {
     lines = await extractInvoiceLines(base64, mediaType, pendingForMatch);
   } catch (e) {
-    return NextResponse.json({ error: "تعذّر قراءة الفاتورة: " + String(e) }, { status: 502 });
+    return NextResponse.json({ error: "تعذّر قراءة الفاتورة: " + errorMessage(e) }, { status: 502 });
   }
 
   const bucket = process.env.SUPABASE_INVOICES_BUCKET ?? "invoices";

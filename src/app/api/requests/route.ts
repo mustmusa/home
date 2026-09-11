@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
 import { parseRequestText } from "@/lib/anthropic";
+import { errorMessage } from "@/lib/errors";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
   try {
     items = await parseRequestText(rawText);
   } catch (e) {
-    return NextResponse.json({ error: "تعذّر تفسير الرسالة: " + String(e) }, { status: 502 });
+    return NextResponse.json({ error: "تعذّر تفسير الرسالة: " + errorMessage(e) }, { status: 502 });
   }
 
   if (items.length === 0) {

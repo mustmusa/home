@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { verifyPin } from "@/lib/password";
 import { signSession, SESSION_COOKIE } from "@/lib/auth";
 import type { Role } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,6 +48,6 @@ export async function POST(req: NextRequest) {
     });
     return res;
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(e) }, { status: 500 });
   }
 }

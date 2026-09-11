@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { hashPin } from "@/lib/password";
 import { signSession } from "@/lib/auth";
 import { SESSION_COOKIE } from "@/lib/auth";
+import { errorMessage } from "@/lib/errors";
 
 // يسمح بإنشاء أول حساب أدمن فقط إذا كان جدول المستخدمين فارغًا تمامًا
 async function isSetupOpen() {
@@ -18,7 +19,7 @@ export async function GET() {
     const ready = await isSetupOpen();
     return NextResponse.json({ open: ready });
   } catch (e) {
-    return NextResponse.json({ open: false, error: String(e) }, { status: 500 });
+    return NextResponse.json({ open: false, error: errorMessage(e) }, { status: 500 });
   }
 }
 
@@ -67,6 +68,6 @@ export async function POST(req: NextRequest) {
     });
     return res;
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(e) }, { status: 500 });
   }
 }

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { AppUser, House, Role } from "@/lib/types";
 
 const ROLE_LABELS: Record<Role, string> = {
-  wife: "زوجة",
+  wife: "مسؤولة بيت",
   warehouse: "مسؤول المخزن",
   admin: "أدمن",
 };
@@ -123,7 +123,7 @@ export default function UsersTab() {
             required
           />
           <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            <option value="wife">زوجة</option>
+            <option value="wife">مسؤولة بيت (بيت 1 / بيت 2)</option>
             <option value="warehouse">مسؤول المخزن</option>
             <option value="admin">أدمن</option>
           </select>
@@ -154,11 +154,12 @@ export default function UsersTab() {
               <li key={u.id} className="flex items-center justify-between border border-gray-100 rounded-lg p-3">
                 <div>
                   <p className="font-medium">
-                    {u.name} <span className="text-xs text-gray-400">({ROLE_LABELS[u.role]})</span>
+                    {u.name}{" "}
+                    <span className="text-xs text-gray-400">
+                      ({u.role === "wife" ? houseName(u.house_id) : ROLE_LABELS[u.role]})
+                    </span>
                   </p>
-                  <p className="text-xs text-gray-500">
-                    {u.phone} {u.role === "wife" && `— ${houseName(u.house_id)}`}
-                  </p>
+                  <p className="text-xs text-gray-500">{u.phone}</p>
                 </div>
                 <button onClick={() => removeUser(u.id)} className="text-red-500 text-xs">
                   حذف
