@@ -249,7 +249,7 @@ export default function WarehouseManager() {
         <form onSubmit={pull} className="grid grid-cols-2 gap-3">
           <select className="input col-span-2" value={pullItem} onChange={(e) => setPullItem(e.target.value)} required>
             <option value="">اختر العنصر من المخزن</option>
-            {items.map((it) => (
+            {items.filter((it) => it.quantity > 0).map((it) => (
               <option key={it.id} value={it.id}>
                 {it.name} (متوفر: {it.quantity} {it.unit ?? ""})
               </option>
@@ -301,11 +301,11 @@ export default function WarehouseManager() {
         <h2 className="font-bold mb-3">المخزون الحالي</h2>
         {loading ? (
           <p className="text-gray-400 text-sm">جارٍ التحميل...</p>
-        ) : items.length === 0 ? (
+        ) : items.filter((it) => it.quantity > 0).length === 0 ? (
           <p className="text-gray-400 text-sm">المخزن فارغ حاليًا.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {items.map((it) =>
+            {items.filter((it) => it.quantity > 0).map((it) =>
               editingId === it.id ? (
                 <div key={it.id} className="border border-primary/30 bg-blue-50 rounded-lg p-3 flex flex-col gap-2">
                   <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="الاسم" />
