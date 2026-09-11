@@ -68,24 +68,61 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "لا توجد عناصر في الفاتورة" }, { status: 400 });
   }
 
-  // حذف التكرار باستخدام خوارزمية محافظة جداً (لا تحذف إلا المطابقة 100%)
+  // حذف التكرار باستخدام خوارزمية ذكية تعرّف العناصر المتشابهة
+  function normalizeText(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[-—–]/g, " ") // حول الدشات لمسافات
+      .replace(/\s+/g, " ") // دمج المسافات المتعددة
+      .replace(/[^\w؀-ۿ\s]/g, "") // حذف الرموز الخاصة
+      .trim();
+  }
+
+  function calculateSimilarity(a: string, b: string): number {
+    const normA = normalizeText(a);
+    const normB = normalizeText(b);
+    if (normA === normB) return 1;
+
+    const longer = normA.length > normB.length ? normA : normB;
+    const shorter = normA.length > normB.length ? normB : normA;
+
+    if (longer.includes(shorter)) return 0.95;
+
+    let matches = 0;
+    for (let i = 0; i < shorter.length; i++) {
+      if (longer.includes(shorter[i])) matches++;
+    }
+    return matches / longer.length;
+  }
+
   let dedupedLines = allLines;
-  const seen = new Map<string, number>();
-  const toRemoveIndices: number[] = [];
+  const toRemoveIndices = new Set<number>();
 
   for (let i = 0; i < allLines.length; i++) {
-    const line = allLines[i];
-    const key = `${line.item_name}|${line.quantity}|${line.unit_price}|${line.line_total}`;
-    if (seen.has(key)) {
-      toRemoveIndices.push(i);
-    } else {
-      seen.set(key, i);
+    if (toRemoveIndices.has(i)) continue;
+
+    const current = allLines[i];
+    for (let j = i + 1; j < allLines.length; j++) {
+      if (toRemoveIndices.has(j)) continue;
+
+      const next = allLines[j];
+      const similarity = calculateSimilarity(current.item_name, next.item_name);
+
+      // إذا العناصر متشابهة جداً (90%+) والسعر والكمية متقاربة، هي تكرار
+      if (similarity > 0.9) {
+        const priceDiff = Math.abs((current.unit_price || 0) - (next.unit_price || 0));
+        const qtyMatch = current.quantity === next.quantity;
+
+        if (qtyMatch && priceDiff < 0.1) {
+          toRemoveIndices.add(j); // احذف النسخة الثانية
+        }
+      }
     }
   }
 
-  if (toRemoveIndices.length > 0) {
-    dedupedLines = allLines.filter((_, i) => !toRemoveIndices.includes(i));
-    console.log(`تم حذف ${toRemoveIndices.length} عنصر مكرر تماماً`);
+  if (toRemoveIndices.size > 0) {
+    dedupedLines = allLines.filter((_, i) => !toRemoveIndices.has(i));
+    console.log(`تم حذف ${toRemoveIndices.size} عنصر مكرر بذكاء`);
   }
 
   // احسب المجموع الكلي والتحقق من الخصومات
