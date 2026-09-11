@@ -25,15 +25,22 @@ type EditableLine = {
 
 type Step = "upload" | "review" | "match";
 
-const MAX_DIMENSION = 1800;
-const JPEG_QUALITY = 0.82;
+/** أقصى حجم إجمالي مسموح لطلب واحد (هامش أمان تحت حد الخادم 4.5MB) */
+const MAX_TOTAL_BYTES = 3.8 * 1024 * 1024;
 
-/** يصغّر الصورة قبل الرفع حتى لا نتجاوز حد حجم الطلب المسموح بالخادم */
-async function compressImage(file: File): Promise<File> {
+/** إعدادات ضغط تُجرَّب بالترتيب من الأفضل جودة للأصغر حجمًا */
+const COMPRESSION_LEVELS = [
+  { maxDimension: 1800, quality: 0.82 },
+  { maxDimension: 1400, quality: 0.75 },
+  { maxDimension: 1100, quality: 0.68 },
+  { maxDimension: 900, quality: 0.6 },
+] as const;
+
+async function compressImageAt(file: File, maxDimension: number, quality: number): Promise<File> {
   if (typeof createImageBitmap !== "function") return file;
 
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+  const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
   const width = Math.round(bitmap.width * scale);
   const height = Math.round(bitmap.height * scale);
 
@@ -44,10 +51,21 @@ async function compressImage(file: File): Promise<File> {
   if (!ctx) return file;
   ctx.drawImage(bitmap, 0, 0, width, height);
 
-  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
+  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
   if (!blob) return file;
 
   return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+}
+
+/** يضغط كل الصور، ويزيد شدة الضغط تدريجيًا لو المجموع لسا أكبر من الحد المسموح */
+async function compressToBudget(rawFiles: File[]): Promise<{ files: File[]; overBudget: boolean }> {
+  let result: File[] = rawFiles;
+  for (const level of COMPRESSION_LEVELS) {
+    result = await Promise.all(rawFiles.map((f) => compressImageAt(f, level.maxDimension, level.quality)));
+    const total = result.reduce((s, f) => s + f.size, 0);
+    if (total <= MAX_TOTAL_BYTES) return { files: result, overBudget: false };
+  }
+  return { files: result, overBudget: true };
 }
 
 export default function NewInvoiceTab() {
@@ -131,7 +149,13 @@ export default function NewInvoiceTab() {
     let files: File[] = rawFiles;
     let urls: string[] = [];
     try {
-      files = await Promise.all(rawFiles.map(compressImage));
+      const { files: compressed, overBudget } = await compressToBudget(rawFiles);
+      if (overBudget) {
+        setError("عدد/حجم الصور كبير جدًا حتى بعد الضغط — قسّم الفاتورة على مجموعتين وارفعهم كفاتورتين منفصلتين");
+        setParsing(false);
+        return;
+      }
+      files = compressed;
       urls = files.map((f) => URL.createObjectURL(f));
       setPreviewUrls(urls);
       pendingPreviews.forEach((u) => URL.revokeObjectURL(u));

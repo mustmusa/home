@@ -131,7 +131,7 @@ ${pendingList || "(لا توجد طلبات معلّقة حاليًا)"}
 
   const response = await client().messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 8192,
+    max_tokens: 16000,
     messages: [
       {
         role: "user",

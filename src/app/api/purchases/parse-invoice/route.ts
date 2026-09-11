@@ -11,7 +11,11 @@ const ALLOWED_TYPES: Record<string, "image/jpeg" | "image/png" | "image/webp"> =
   "image/webp": "image/webp",
 };
 
-const MAX_IMAGES = 8;
+const MAX_IMAGES = 20;
+
+// قراءة عدة صور بالذكاء الاصطناعي ممكن تاخذ وقت أطول من المهلة الافتراضية (10 ثواني) —
+// نرفعها لأقصى حد مسموح بالخطة المجانية بـ Vercel (60 ثانية)
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
