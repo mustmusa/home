@@ -177,14 +177,14 @@ export default function NewInvoiceTab() {
       let currentProgress = 0;
       const progressInterval = setInterval(() => {
         const elapsed = (Date.now() - startTime) / 1000;
-        // تقدم ببطء - كل ثانية تضيف ~2% حتى الوصول لـ 85%
-        currentProgress = Math.min(85, Math.round(elapsed * 2));
+        // تقدم بطيء جداً - 1% كل ثانية حتى 90% (تجنب الوصول للنهاية قبل الانتهاء الفعلي)
+        currentProgress = Math.min(90, Math.round(elapsed * 1));
         setProgressPercent(currentProgress);
 
-        if (currentProgress > 70) {
+        if (currentProgress > 75) {
           setProcessingStatus(`جارٍ حذف الأسطر المكرّرة... (${currentProgress}%)`);
         } else {
-          const currentBatch = Math.min(batchCount, Math.max(1, Math.ceil((currentProgress / 85) * batchCount)));
+          const currentBatch = Math.min(batchCount, Math.max(1, Math.ceil((currentProgress / 90) * batchCount)));
           setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (${currentProgress}% - الدفعة ${currentBatch} من ${batchCount})`);
         }
       }, 500);
