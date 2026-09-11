@@ -146,9 +146,10 @@ ${itemsList}
   console.log(`المجموع قبل: ${totalBefore.toFixed(2)}, بعد: ${totalAfter.toFixed(2)}`);
   console.log(`=================\n`);
 
-  // احسب المجموع الكلي
+  // احسب المجموع الكلي (بدون ضريبة)
   const total = dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
   const itemCount = dedupedLines.length;
+  const totalWithTax = Math.round(total * 1.15 * 100) / 100;
 
   // تحقق من أن النتيجة معقولة
   const expectedBaseTotal = 518.82;
@@ -157,16 +158,18 @@ ${itemsList}
 
   console.log(`\n=== التحقق من معقولية النتائج ===`);
   console.log(`العناصر المتوقعة: ${expectedItemCount}, المستخرجة: ${itemCount}`);
-  console.log(`المجموع المتوقع: ${expectedBaseTotal}, المستخرج: ${total.toFixed(2)}`);
+  console.log(`المجموع المتوقع (بدون ضريبة): ${expectedBaseTotal}`);
+  console.log(`المستخرج (بدون ضريبة): ${total.toFixed(2)}`);
+  console.log(`المستخرج (مع 15% ضريبة): ${totalWithTax}`);
 
   // ١. تحقق من عدد العناصر
   if (itemCount !== expectedItemCount) {
     validationErrors.push(`❌ عدد العناصر خاطئ: ${itemCount} بدل ${expectedItemCount}`);
   }
 
-  // ٢. تحقق من المجموع (يجب يكون قريب من 518.82 بـ ±10%)
-  const minExpectedTotal = expectedBaseTotal * 0.9;
-  const maxExpectedTotal = expectedBaseTotal * 1.1;
+  // ٢. تحقق من المجموع (يجب يكون قريب من 518.82 بـ ±5% - أدق الآن لأننا نقرأ السعر الأساسي فقط)
+  const minExpectedTotal = expectedBaseTotal * 0.95;
+  const maxExpectedTotal = expectedBaseTotal * 1.05;
   if (total < minExpectedTotal || total > maxExpectedTotal) {
     validationErrors.push(`❌ المجموع خاطئ: ${total.toFixed(2)} (يجب يكون بين ${minExpectedTotal.toFixed(2)} و ${maxExpectedTotal.toFixed(2)})`);
   }
@@ -202,7 +205,7 @@ ${itemsList}
     console.error(`فشل التحقق من البيانات المستخرجة`);
   }
 
-  // احفظ الشراء الجديد
+  // احفظ الشراء الجديد (total_amount بدون ضريبة)
   const { data: purchaseData, error: purchaseErr } = await db
     .from("purchases")
     .insert({
@@ -216,7 +219,7 @@ ${itemsList}
     return NextResponse.json({ error: "فشل حفظ الشراء: " + purchaseErr?.message }, { status: 500 });
   }
 
-  // احفظ أسطر الشراء
+  // احفظ أسطر الشراء (line_total بدون ضريبة - الضريبة 15% ثابتة)
   const linesToInsert = dedupedLines.map((line) => ({
     purchase_id: purchaseData.id,
     item_name: line.item_name,
@@ -249,12 +252,16 @@ ${itemsList}
       originalItems: allLines.length,
       removedDuplicates: allLines.length - itemCount,
       totalAmount: total,
+      totalAmountWithTax: totalWithTax,
     },
     debug: {
       totalBefore: allLines.reduce((sum, l) => sum + (l.line_total || 0), 0),
       totalAfter: total,
+      totalWithTax,
       expectedTotal: 518.82,
+      expectedTotalWithTax: 596.64,
       difference: total - 518.82,
+      differenceWithTax: totalWithTax - 596.64,
       itemCountBefore: allLines.length,
       itemCountAfter: itemCount,
       validationErrors: validationErrors.length > 0 ? validationErrors : [],
