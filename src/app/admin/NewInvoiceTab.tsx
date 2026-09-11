@@ -79,6 +79,7 @@ export default function NewInvoiceTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [processingStatus, setProcessingStatus] = useState<string>("");
 
   // الصور المتجمّعة قبل الإرسال (تصوير مباشر متكرر و/أو اختيار من المعرض معًا)
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -144,14 +145,17 @@ export default function NewInvoiceTab() {
     if (rawFiles.length === 0) return;
     setError(null);
     setSuccess(null);
+    setProcessingStatus("");
     setParsing(true);
 
     let files: File[] = rawFiles;
     let urls: string[] = [];
     try {
+      setProcessingStatus("جارٍ ضغط الصور...");
       const { files: compressed, overBudget } = await compressToBudget(rawFiles);
       if (overBudget) {
         setError("عدد/حجم الصور كبير جدًا حتى بعد الضغط — قسّم الفاتورة على مجموعتين وارفعهم كفاتورتين منفصلتين");
+        setProcessingStatus("");
         setParsing(false);
         return;
       }
@@ -162,9 +166,22 @@ export default function NewInvoiceTab() {
       setPendingFiles([]);
       setPendingPreviews([]);
 
+      setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي...`);
       const form = new FormData();
       for (const f of files) form.append("images", f);
-      const res = await fetch("/api/purchases/parse-invoice", { method: "POST", body: form });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 65000);
+
+      let res: Response;
+      try {
+        res = await fetch("/api/purchases/parse-invoice", {
+          method: "POST",
+          body: form,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       type ExtractedLine = {
         item_name: string;
@@ -180,25 +197,38 @@ export default function NewInvoiceTab() {
         pendingRequests?: PendingForMatch[];
         lines?: ExtractedLine[];
       };
-      try {
-        data = await res.json();
-      } catch {
-        setError(
-          res.status === 413
-            ? "الصور كبيرة جدًا حتى بعد الضغط — جرّب صور أقل أو صور أوضح بدقة أقل"
-            : `تعذّر الاتصال بالخادم (رمز الحالة ${res.status})`,
-        );
+
+      if (!res.ok) {
+        let errorMsg = "حدث خطأ غير متوقع";
+        try {
+          data = await res.json();
+          errorMsg = data.error ?? errorMsg;
+        } catch {
+          if (res.status === 413) {
+            errorMsg = "الصور كبيرة جدًا حتى بعد الضغط — جرّب صور أقل أو صور أوضح بدقة أقل";
+          } else if (res.status === 504 || res.status === 408) {
+            errorMsg = "انتهت مهلة الخادم — جرّب صور أقل أو اقسم الفاتورة على مجموعتين";
+          } else {
+            errorMsg = `خطأ من الخادم (${res.status})`;
+          }
+        }
+        setError(errorMsg);
         urls.forEach((u) => URL.revokeObjectURL(u));
         setPreviewUrls([]);
+        setProcessingStatus("");
         return;
       }
 
-      if (!res.ok) {
-        setError(data.error ?? "حدث خطأ");
+      try {
+        data = await res.json();
+      } catch (e) {
+        setError("تعذّر فهم رد الخادم — قد تكون الفاتورة كبيرة جدًا أو الخادم مشغول");
         urls.forEach((u) => URL.revokeObjectURL(u));
         setPreviewUrls([]);
+        setProcessingStatus("");
         return;
       }
+
       setImagePaths(data.imagePaths ?? []);
       setPending(data.pendingRequests ?? []);
 
@@ -221,9 +251,19 @@ export default function NewInvoiceTab() {
         },
       );
       setLines(editable);
+      setProcessingStatus("");
+      setSuccess(`تم قراءة الفاتورة بنجاح ✅ (${editable.length} سطر)`);
       setStep("review");
-    } catch {
-      setError("تعذّر الاتصال بالخادم");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "خطأ غير معروف";
+      if (msg.includes("abort")) {
+        setError("انقطع الاتصال أثناء القراءة — جرّب صور أقل أو حاول مرة أخرى");
+      } else {
+        setError(`تعذّر الاتصال بالخادم: ${msg}`);
+      }
+      urls.forEach((u) => URL.revokeObjectURL(u));
+      setPreviewUrls([]);
+      setProcessingStatus("");
     } finally {
       setParsing(false);
     }
@@ -330,6 +370,12 @@ export default function NewInvoiceTab() {
             <button className="btn-primary w-full mt-4" onClick={submitInvoice} disabled={parsing}>
               {parsing ? "جارٍ قراءة الفاتورة..." : `قراءة الفاتورة (${pendingFiles.length} صورة)`}
             </button>
+          )}
+
+          {processingStatus && (
+            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800 font-medium">{processingStatus}</p>
+            </div>
           )}
 
           {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
