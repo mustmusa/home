@@ -97,8 +97,7 @@ export async function POST(req: NextRequest) {
     .from("purchases")
     .insert({
       total_amount: total,
-      status: "pending_approval",
-      notes: `استخرج من ${allLines.length} عنصر، تم حذف ${allLines.length - itemCount} مكررة`,
+      invoice_image_paths: allImagePaths,
     })
     .select("id")
     .single();
