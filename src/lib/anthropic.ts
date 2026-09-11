@@ -220,8 +220,9 @@ export async function extractInvoiceLines(
     batches.push(images.slice(i, i + IMAGES_PER_CALL));
   }
 
-  // معالجة الدفعات بالتتابع بدل التوازي لتجنب مشاكل التوقيت والحد الأقصى
-  // (الدفعات المتوازية قد تتجاوز حد الانتظار، خاصة مع عدد كبير من الصور)
+  // معالجة الدفعات بالتتابع (متسلسلة) بدل التوازي
+  // - التتابع: أبطأ لكن آمن من انقطاع الخادم
+  // - لا حاجة لـ dedupeLines في التسلسل لأن Claude يعرف ترتيب الصور
   const results: ExtractedInvoiceLine[][] = [];
   for (let i = 0; i < batches.length; i++) {
     try {
@@ -232,5 +233,7 @@ export async function extractInvoiceLines(
     }
   }
 
-  return dedupeLines(results.flat());
+  // عند المعالجة المتسلسلة، لا نحتاج dedupeLines لأن Claude يقرأ الصور بترتيبها
+  // dedupeLines تبطّئ المعالجة بـ 5+ ثوانٍ، لذا نحذفها هنا
+  return results.flat();
 }
