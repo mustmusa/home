@@ -159,10 +159,6 @@ ${pendingList || "(لا توجد)"}
   const response = await client().messages.create({
     model: "claude-sonnet-5",
     max_tokens: 16000,
-    // مهمة استخراج منظّمة (OCR + تنسيق) لا تحتاج تفكير موسّع، وتعطيله
-    // يضمن كل ميزانية الرد تذهب للنص الفعلي بدل التفكير — خصوصًا مع
-    // عدة صور دفعة وحدة حيث قد يستهلك التفكير التلقائي الميزانية كاملة
-    thinking: { type: "disabled" },
     messages: [
       {
         role: "user",
