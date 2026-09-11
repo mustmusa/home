@@ -87,6 +87,45 @@ type InvoiceImage = {
   mediaType: "image/jpeg" | "image/png" | "image/webp";
 };
 
+/** المرحلة الأولى: استخراج قائمة الأسماء والكميات (Haiku - سريع) */
+async function extractItemsListFromImage(image: InvoiceImage): Promise<Array<{ name: string; qty: string | null }>> {
+  const prompt = `اقرأ هذه صورة فاتورة. استخرج **فقط** قائمة بأسماء المنتجات والكميات (بدون أسعار).
+
+لكل سطر اكتب:
+{"name": "اسم المنتج", "quantity": "الكمية أو null"}
+
+الملاحظات:
+- اقرأ جميع الأسطر بعناية
+- الكمية قد تكون عشرية (1.5، 0.886)
+- استخرج كل سطر تراه بدون استثناء
+- أعد مصفوفة JSON فقط`;
+
+  const response = await client().messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 4096,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: image.mediaType, data: image.base64 },
+          },
+          { type: "text", text: prompt },
+        ],
+      },
+    ],
+  });
+
+  try {
+    const items = extractJson<Array<{ name: string; quantity: string | null }>>(firstText(response));
+    if (!Array.isArray(items)) return [];
+    return items.map(it => ({ name: it.name || "", qty: it.quantity || null }));
+  } catch {
+    return [];
+  }
+}
+
 async function extractInvoiceLinesSingleCall(
   images: InvoiceImage[],
   pendingRequests: PendingRequestForMatch[],
@@ -103,6 +142,15 @@ async function extractInvoiceLinesSingleCall(
 
 `
       : "";
+
+  // المرحلة الأولى: احصل على قائمة الأسماء من Haiku (سريع)
+  const itemsList = await Promise.all(
+    images.map(img => extractItemsListFromImage(img))
+  ).then(results => results.flat());
+
+  const itemsContext = itemsList.length > 0
+    ? `\n\nالعناصر المتوقعة في هذه الصور:\n${itemsList.map((it, i) => `${i + 1}. "${it.name}" (qty: ${it.qty})`).join("\n")}\n`
+    : "";
 
   const prompt = `أنت متخصص في قراءة فواتير المشتريات من الصور بدقة عالية جداً. هذه مهمة حرجة - كل سطر مفقود أو سعر خاطئ = خسارة مالية مباشرة.
 
@@ -127,6 +175,9 @@ ${multiImageNote}
 - الفاتورة تحتوي على **بالضبط 54 سطر مشتريات**
 - بعض الأسطر قد تظهر مرتين (overlap من الصور)
 - استخرج **كل سطر تراه** بدون حذف - النظام سيعالج التطابقات
+
+${itemsContext}⚠️ **تعليمات تطابق الأسعار:**
+استخدم قائمة الأسماء أعلاه **كمرجع** للتحقق من أنك استخرجت جميع العناصر بالأسعار الصحيحة. ابحث عن سعر كل عنصر في الفاتورة (العمود الثاني - بدون ضريبة).
 
 **صيغة JSON لكل سطر:**
 {
@@ -245,7 +296,7 @@ ${JSON.stringify(lines)}
   return lines;
 }
 
-const IMAGES_PER_CALL = 2;
+const IMAGES_PER_CALL = 1;
 
 /**
  * يقرأ صورة (أو عدة صور لنفس الفاتورة الطويلة) ويستخرج عناصرها كأسطر منفصلة،
