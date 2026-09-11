@@ -68,22 +68,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "لا توجد عناصر في الفاتورة" }, { status: 400 });
   }
 
-  // حذف التكرار باستخدام Claude
+  // حذف التكرار باستخدام Claude مع تحسينات أفضل
   let dedupedLines = allLines;
   try {
     const linesList = allLines
-      .map((l, i) => `${i + 1}. "${l.item_name}" - السعر: ${l.unit_price}, الكمية: ${l.quantity}, المجموع: ${l.line_total}`)
+      .map(
+        (l, i) =>
+          `${i + 1}. [${l.item_name}] الكمية:${l.quantity} السعر:${l.unit_price} المجموع:${l.line_total}`,
+      )
       .join("\n");
 
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
+      max_tokens: 2000,
       messages: [
         {
           role: "user",
-          content: `عندي قائمة عناصر من فاتورة. بعض العناصر قد تكون مكررة (نفس الاسم والسعر).
-أرجع JSON فقط بصيغة: {"toRemoveIndices": [1, 3, 5]} (الفهارس التي يجب حذفها)
-استخدم الفهرسة من 1.
+          content: `أنت متخصص في كشف العناصر المكررة في الفواتير.
+
+عندي قائمة عناصر من فاتورة واحدة. البعض قد يكون مكرراً (نفس الاسم والسعر والكمية تماماً).
+
+أرجع JSON فقط بهذه الصيغة (بدون نص إضافي):
+{"toRemoveIndices": [1, 3, 5]}
+
+ملاحظات:
+- استخدم فهرسة من 1 (الرقم الأول = 1)
+- حذف فقط النسخ المكررة الإضافية (احفظ أول ظهور)
+- نفس الاسم والسعر والكمية = مكرر 100%
+- إذا لم يوجد تكرار، ارجع: {"toRemoveIndices": []}
 
 القائمة:
 ${linesList}`,
@@ -94,15 +106,21 @@ ${linesList}`,
     const result = response.content[0];
     if (result.type === "text") {
       try {
-        const parsed = JSON.parse(result.text);
-        if (Array.isArray(parsed.toRemoveIndices)) {
-          dedupedLines = allLines.filter((_, i) => !parsed.toRemoveIndices.includes(i + 1));
+        // حاول استخراج JSON من النص
+        const jsonMatch = result.text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed.toRemoveIndices) && parsed.toRemoveIndices.length > 0) {
+            dedupedLines = allLines.filter((_, i) => !parsed.toRemoveIndices.includes(i + 1));
+          }
         }
-      } catch {
+      } catch (e) {
+        console.error("فشل parsing JSON:", e);
         // استخدم القائمة الكاملة إذا فشل parsing
       }
     }
-  } catch {
+  } catch (e) {
+    console.error("فشل حذف التكرار:", e);
     // استخدم القائمة الكاملة إذا فشلت إزالة التكرار
   }
 
