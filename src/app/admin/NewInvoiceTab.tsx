@@ -25,6 +25,31 @@ type EditableLine = {
 
 type Step = "upload" | "review" | "match";
 
+const MAX_DIMENSION = 1800;
+const JPEG_QUALITY = 0.82;
+
+/** يصغّر الصورة قبل الرفع حتى لا نتجاوز حد حجم الطلب المسموح بالخادم */
+async function compressImage(file: File): Promise<File> {
+  if (typeof createImageBitmap !== "function") return file;
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+  const width = Math.round(bitmap.width * scale);
+  const height = Math.round(bitmap.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return file;
+  ctx.drawImage(bitmap, 0, 0, width, height);
+
+  const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
+  if (!blob) return file;
+
+  return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+}
+
 export default function NewInvoiceTab() {
   const [houses, setHouses] = useState<House[]>([]);
   const [pending, setPending] = useState<PendingForMatch[]>([]);
@@ -62,20 +87,50 @@ export default function NewInvoiceTab() {
   }
 
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    if (files.length === 0) return;
+    const rawFiles = Array.from(e.target.files ?? []);
+    if (rawFiles.length === 0) return;
     setError(null);
     setSuccess(null);
     setParsing(true);
 
-    const urls = files.map((f) => URL.createObjectURL(f));
-    setPreviewUrls(urls);
-
+    let files: File[] = rawFiles;
+    let urls: string[] = [];
     try {
+      files = await Promise.all(rawFiles.map(compressImage));
+      urls = files.map((f) => URL.createObjectURL(f));
+      setPreviewUrls(urls);
+
       const form = new FormData();
       for (const f of files) form.append("images", f);
       const res = await fetch("/api/purchases/parse-invoice", { method: "POST", body: form });
-      const data = await res.json();
+
+      type ExtractedLine = {
+        item_name: string;
+        quantity: number | null;
+        unit_price: number | null;
+        line_total: number | null;
+        category: string | null;
+        suggested_request_id: string | null;
+      };
+      let data: {
+        error?: string;
+        imagePaths?: string[];
+        pendingRequests?: PendingForMatch[];
+        lines?: ExtractedLine[];
+      };
+      try {
+        data = await res.json();
+      } catch {
+        setError(
+          res.status === 413
+            ? "الصور كبيرة جدًا حتى بعد الضغط — جرّب صور أقل أو صور أوضح بدقة أقل"
+            : `تعذّر الاتصال بالخادم (رمز الحالة ${res.status})`,
+        );
+        urls.forEach((u) => URL.revokeObjectURL(u));
+        setPreviewUrls([]);
+        return;
+      }
+
       if (!res.ok) {
         setError(data.error ?? "حدث خطأ");
         urls.forEach((u) => URL.revokeObjectURL(u));
@@ -86,17 +141,7 @@ export default function NewInvoiceTab() {
       setPending(data.pendingRequests ?? []);
 
       const editable: EditableLine[] = (data.lines ?? []).map(
-        (
-          l: {
-            item_name: string;
-            quantity: number | null;
-            unit_price: number | null;
-            line_total: number | null;
-            category: string | null;
-            suggested_request_id: string | null;
-          },
-          idx: number,
-        ) => {
+        (l: ExtractedLine, idx: number) => {
           const matched = l.suggested_request_id
             ? (data.pendingRequests as PendingForMatch[]).find((p) => p.id === l.suggested_request_id)
             : null;
