@@ -128,11 +128,47 @@ ${linesList}`,
   const total = dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
   const itemCount = dedupedLines.length;
 
+  // احفظ الشراء الجديد
+  const { data: purchaseData, error: purchaseErr } = await db
+    .from("purchases")
+    .insert({
+      total_amount: total,
+      status: "pending_approval",
+      invoice_images: allImagePaths,
+      notes: `استخرج من ${allLines.length} عنصر، تم حذف ${allLines.length - itemCount} مكررة`,
+    })
+    .select("id")
+    .single();
+
+  if (purchaseErr || !purchaseData) {
+    return NextResponse.json({ error: "فشل حفظ الشراء: " + purchaseErr?.message }, { status: 500 });
+  }
+
+  // احفظ أسطر الشراء
+  const linesToInsert = dedupedLines.map((line) => ({
+    purchase_id: purchaseData.id,
+    item_name: line.item_name,
+    quantity: line.quantity,
+    unit_price: line.unit_price,
+    line_total: line.line_total,
+    destination: line.suggested_request_id ? "house" : "warehouse",
+    house_id: line.suggested_request_id ? pendingForMatch.find((p) => p.id === line.suggested_request_id)?.house_id : null,
+    matched_request_id: line.suggested_request_id,
+    source: "invoice",
+    category: line.category,
+  }));
+
+  const { error: linesErr } = await db.from("purchase_lines").insert(linesToInsert);
+  if (linesErr) {
+    return NextResponse.json({ error: "فشل حفظ الأسطر: " + linesErr.message }, { status: 500 });
+  }
+
   // احذف البيانات المؤقتة
   await db.from("temp_invoice_batches").delete().eq("session_id", sessionId);
 
   return NextResponse.json({
     success: true,
+    purchaseId: purchaseData.id,
     lines: dedupedLines,
     imagePaths: allImagePaths,
     pendingRequests: pendingForMatch,
