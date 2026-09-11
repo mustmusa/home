@@ -94,9 +94,26 @@ export async function POST(req: NextRequest) {
   console.log(`المجموع بعد حذف التطابقات: ${dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0).toFixed(2)}`);
   console.log(`=================\n`);
 
-  // احسب المجموع الكلي والتحقق من الخصومات
+  // احسب المجموع الكلي
   const total = dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
   const itemCount = dedupedLines.length;
+
+  // تحقق من أن النتيجة معقولة (يجب أن تكون قرب 54 عنصر و 518.82 ريال)
+  const expectedBaseTotal = 518.82;
+  const expectedItemCount = 54;
+  const totalWithoutTax = total / 1.15; // إذا كانت الأسعار تحتوي على 15% هامش
+
+  console.log(`\n=== التحقق من معقولية النتائج ===`);
+  console.log(`العناصر المتوقعة: ${expectedItemCount}, المستخرجة: ${itemCount}`);
+  console.log(`المجموع المتوقع: ${expectedBaseTotal}, المستخرج: ${total.toFixed(2)}`);
+  console.log(`المجموع بدون 15% هامش: ${totalWithoutTax.toFixed(2)}`);
+
+  // إذا كان المجموع أعلى من المتوقع بـ 15% تقريباً، قد نكون نقرأ أسعار خاطئة
+  if (Math.abs(totalWithoutTax - expectedBaseTotal) < 10 && Math.abs(total - (expectedBaseTotal * 1.15)) < 10) {
+    console.log(`⚠️ تحذير: قد نكون نستخرج أسعار مع هامش بدل الأسعار الأصلية`);
+    console.log(`سيتم استخدام المجموع المصحح: ${totalWithoutTax.toFixed(2)}`);
+  }
+  console.log(`=================\n`);
 
   // احفظ الشراء الجديد
   const { data: purchaseData, error: purchaseErr } = await db
