@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { CATEGORIES, type House, type PurchaseRequest, type WarehouseItem } from "@/lib/types";
+import WithdrawalsList from "./WithdrawalsList";
 
 export default function WarehouseManager() {
+  const [tab, setTab] = useState<"items" | "withdrawals">("items");
   const [items, setItems] = useState<WarehouseItem[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [pending, setPending] = useState<PurchaseRequest[]>([]);
@@ -23,6 +25,15 @@ export default function WarehouseManager() {
   const [pullQty, setPullQty] = useState("");
   const [pullError, setPullError] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editQty, setEditQty] = useState("");
+  const [editUnit, setEditUnit] = useState("");
+  const [editCost, setEditCost] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,8 +123,84 @@ export default function WarehouseManager() {
 
   const requestsForHouse = pending.filter((r) => r.house_id === pullHouse);
 
+  function startEdit(it: WarehouseItem) {
+    setEditingId(it.id);
+    setEditName(it.name);
+    setEditQty(String(it.quantity));
+    setEditUnit(it.unit ?? "");
+    setEditCost(it.unit_cost != null ? String(it.unit_cost) : "");
+    setEditCategory(it.category ?? "");
+    setEditError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditError(null);
+  }
+
+  async function saveEdit(id: string) {
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/warehouse/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName,
+          quantity: Number(editQty || 0),
+          unit: editUnit || null,
+          unit_cost: editCost ? Number(editCost) : null,
+          category: editCategory || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEditError(data.error ?? "حدث خطأ");
+        return;
+      }
+      setEditingId(null);
+      load();
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function deleteItem(id: string) {
+    if (!confirm("حذف هذا العنصر نهائيًا من المخزن؟")) return;
+    const res = await fetch(`/api/warehouse/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? "تعذّر الحذف (قد يكون مسموح للأدمن فقط)");
+      return;
+    }
+    load();
+  }
+
   return (
     <div className="flex flex-col gap-4">
+      <nav className="card !p-2 flex gap-1">
+        <button
+          onClick={() => setTab("items")}
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold ${
+            tab === "items" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          عناصر المخزن
+        </button>
+        <button
+          onClick={() => setTab("withdrawals")}
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold ${
+            tab === "withdrawals" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          المسحوبات
+        </button>
+      </nav>
+
+      {tab === "withdrawals" && <WithdrawalsList />}
+
+      {tab === "items" && (
+        <>
       <section className="card">
         <h2 className="font-bold mb-3">إضافة للمخزون</h2>
         <form onSubmit={addItem} className="grid grid-cols-2 gap-3">
@@ -217,34 +304,75 @@ export default function WarehouseManager() {
         ) : items.length === 0 ? (
           <p className="text-gray-400 text-sm">المخزن فارغ حاليًا.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-gray-500 text-right">
-                  <th className="pb-2">العنصر</th>
-                  <th className="pb-2">الكمية</th>
-                  <th className="pb-2">تكلفة الوحدة</th>
-                  <th className="pb-2">القيمة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it) => (
-                  <tr key={it.id} className="border-t border-gray-100">
-                    <td className="py-2">{it.name}</td>
-                    <td className="py-2">
-                      {it.quantity} {it.unit ?? ""}
-                    </td>
-                    <td className="py-2">{it.unit_cost ?? "—"}</td>
-                    <td className="py-2">
-                      {it.unit_cost ? (Number(it.quantity) * Number(it.unit_cost)).toFixed(2) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex flex-col gap-2">
+            {items.map((it) =>
+              editingId === it.id ? (
+                <div key={it.id} className="border border-primary/30 bg-blue-50 rounded-lg p-3 flex flex-col gap-2">
+                  <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="الاسم" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      className="input"
+                      type="number"
+                      step="any"
+                      value={editQty}
+                      onChange={(e) => setEditQty(e.target.value)}
+                      placeholder="الكمية"
+                    />
+                    <input className="input" value={editUnit} onChange={(e) => setEditUnit(e.target.value)} placeholder="الوحدة" />
+                    <input
+                      className="input"
+                      type="number"
+                      step="any"
+                      value={editCost}
+                      onChange={(e) => setEditCost(e.target.value)}
+                      placeholder="تكلفة الوحدة"
+                    />
+                  </div>
+                  <select className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
+                    <option value="">بدون تصنيف</option>
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  {editError && <p className="text-red-600 text-sm">{editError}</p>}
+                  <div className="flex gap-2">
+                    <button className="btn-primary flex-1" onClick={() => saveEdit(it.id)} disabled={savingEdit}>
+                      {savingEdit ? "جارٍ الحفظ..." : "حفظ"}
+                    </button>
+                    <button className="btn-secondary flex-1" onClick={cancelEdit} type="button">
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div key={it.id} className="border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-sm">{it.name}</p>
+                    <p className="text-xs text-gray-400">
+                      {it.quantity} {it.unit ?? ""} · {it.category ?? "بدون تصنيف"} ·{" "}
+                      {it.unit_cost != null
+                        ? `${it.unit_cost} / وحدة — القيمة ${(Number(it.quantity) * Number(it.unit_cost)).toFixed(2)}`
+                        : "بدون تكلفة"}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => startEdit(it)} className="text-primary text-xs font-semibold">
+                      تعديل
+                    </button>
+                    <button onClick={() => deleteItem(it.id)} className="text-red-500 text-xs font-semibold">
+                      حذف
+                    </button>
+                  </div>
+                </div>
+              ),
+            )}
           </div>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CATEGORIES, type House } from "@/lib/types";
 
 type PendingForMatch = {
@@ -62,6 +62,12 @@ export default function NewInvoiceTab() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // الصور المتجمّعة قبل الإرسال (تصوير مباشر متكرر و/أو اختيار من المعرض معًا)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     fetch("/api/houses")
       .then((r) => r.json())
@@ -72,22 +78,51 @@ export default function NewInvoiceTab() {
   useEffect(() => {
     return () => {
       previewUrls.forEach((u) => URL.revokeObjectURL(u));
+      pendingPreviews.forEach((u) => URL.revokeObjectURL(u));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function resetAll() {
     previewUrls.forEach((u) => URL.revokeObjectURL(u));
+    pendingPreviews.forEach((u) => URL.revokeObjectURL(u));
     setPreviewUrls([]);
     setImagePaths([]);
     setLines([]);
+    setPendingFiles([]);
+    setPendingPreviews([]);
     setStep("upload");
     setError(null);
     setSuccess(null);
   }
 
-  async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    const rawFiles = Array.from(e.target.files ?? []);
+  function addPendingFiles(newFiles: File[]) {
+    setError(null);
+    setSuccess(null);
+    setPendingFiles((prev) => [...prev, ...newFiles]);
+    setPendingPreviews((prev) => [...prev, ...newFiles.map((f) => URL.createObjectURL(f))]);
+  }
+
+  function onCameraCapture(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) addPendingFiles(files);
+    e.target.value = "";
+  }
+
+  function onGalleryPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) addPendingFiles(files);
+    e.target.value = "";
+  }
+
+  function removePendingFile(index: number) {
+    URL.revokeObjectURL(pendingPreviews[index]);
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+    setPendingPreviews((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function submitInvoice() {
+    const rawFiles = pendingFiles;
     if (rawFiles.length === 0) return;
     setError(null);
     setSuccess(null);
@@ -99,6 +134,9 @@ export default function NewInvoiceTab() {
       files = await Promise.all(rawFiles.map(compressImage));
       urls = files.map((f) => URL.createObjectURL(f));
       setPreviewUrls(urls);
+      pendingPreviews.forEach((u) => URL.revokeObjectURL(u));
+      setPendingFiles([]);
+      setPendingPreviews([]);
 
       const form = new FormData();
       for (const f of files) form.append("images", f);
@@ -164,7 +202,6 @@ export default function NewInvoiceTab() {
       setError("تعذّر الاتصال بالخادم");
     } finally {
       setParsing(false);
-      e.target.value = "";
     }
   }
 
@@ -217,17 +254,60 @@ export default function NewInvoiceTab() {
       {step === "upload" && (
         <section className="card">
           <h2 className="font-bold mb-3">تصوير فاتورة جديدة</h2>
-          <p className="text-xs text-gray-500 mb-2">
-            لو الفاتورة طويلة ومصوّرة على أكثر من صورة، اختر كل الصور دفعة وحدة — بترتيبها من الأول للآخر.
+          <p className="text-xs text-gray-500 mb-3">
+            صوّر بالكاميرا مباشرة (تقدر تكرر التصوير لو الفاتورة طويلة على أكثر من صورة)، أو اختر صور جاهزة من
+            المعرض — أو الاثنين مع بعض. رتّب الصور بنفس ترتيب الفاتورة قبل ما تضغط "قراءة الفاتورة".
           </p>
+
           <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            capture="environment"
+            onChange={onCameraCapture}
+            className="hidden"
+          />
+          <input
+            ref={galleryInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp"
             multiple
-            onChange={onFiles}
-            className="input"
+            onChange={onGalleryPick}
+            className="hidden"
           />
-          {parsing && <p className="text-sm text-gray-500 mt-2">جارٍ قراءة الفاتورة بالذكاء الاصطناعي...</p>}
+
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" className="btn-secondary" onClick={() => cameraInputRef.current?.click()}>
+              📷 التقط صورة
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => galleryInputRef.current?.click()}>
+              🖼️ اختر من المعرض
+            </button>
+          </div>
+
+          {pendingPreviews.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto mt-4 pb-1">
+              {pendingPreviews.map((u, i) => (
+                <div key={i} className="relative shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={u} alt={`صورة ${i + 1}`} className="h-28 w-auto rounded-lg border border-gray-200" />
+                  <button
+                    onClick={() => removePendingFile(i)}
+                    className="absolute -top-2 -left-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs leading-6"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pendingFiles.length > 0 && (
+            <button className="btn-primary w-full mt-4" onClick={submitInvoice} disabled={parsing}>
+              {parsing ? "جارٍ قراءة الفاتورة..." : `قراءة الفاتورة (${pendingFiles.length} صورة)`}
+            </button>
+          )}
+
           {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
           {success && <p className="text-emerald-600 text-sm mt-2">{success}</p>}
         </section>
