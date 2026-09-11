@@ -169,7 +169,8 @@ export default function NewInvoiceTab() {
       setPendingPreviews([]);
 
       setProgressPercent(0);
-      const batchCount = Math.ceil(files.length / 3);
+      const batchCount = Math.ceil(files.length / 2);
+      const estimatedSeconds = batchCount * 4 + 5;
 
       setProcessingStatus(`جارٍ قراءة ${files.length} صورة بالذكاء الاصطناعي... (0%)`);
 
