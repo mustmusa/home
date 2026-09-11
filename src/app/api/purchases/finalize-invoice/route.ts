@@ -150,22 +150,57 @@ ${itemsList}
   const total = dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
   const itemCount = dedupedLines.length;
 
-  // تحقق من أن النتيجة معقولة (يجب أن تكون قرب 54 عنصر و 518.82 ريال)
+  // تحقق من أن النتيجة معقولة
   const expectedBaseTotal = 518.82;
   const expectedItemCount = 54;
-  const totalWithoutTax = total / 1.15; // إذا كانت الأسعار تحتوي على 15% هامش
+  const validationErrors: string[] = [];
 
   console.log(`\n=== التحقق من معقولية النتائج ===`);
   console.log(`العناصر المتوقعة: ${expectedItemCount}, المستخرجة: ${itemCount}`);
   console.log(`المجموع المتوقع: ${expectedBaseTotal}, المستخرج: ${total.toFixed(2)}`);
-  console.log(`المجموع بدون 15% هامش: ${totalWithoutTax.toFixed(2)}`);
 
-  // إذا كان المجموع أعلى من المتوقع بـ 15% تقريباً، قد نكون نقرأ أسعار خاطئة
-  if (Math.abs(totalWithoutTax - expectedBaseTotal) < 10 && Math.abs(total - (expectedBaseTotal * 1.15)) < 10) {
-    console.log(`⚠️ تحذير: قد نكون نستخرج أسعار مع هامش بدل الأسعار الأصلية`);
-    console.log(`سيتم استخدام المجموع المصحح: ${totalWithoutTax.toFixed(2)}`);
+  // ١. تحقق من عدد العناصر
+  if (itemCount !== expectedItemCount) {
+    validationErrors.push(`❌ عدد العناصر خاطئ: ${itemCount} بدل ${expectedItemCount}`);
   }
+
+  // ٢. تحقق من المجموع (يجب يكون قريب من 518.82 بـ ±10%)
+  const minExpectedTotal = expectedBaseTotal * 0.9;
+  const maxExpectedTotal = expectedBaseTotal * 1.1;
+  if (total < minExpectedTotal || total > maxExpectedTotal) {
+    validationErrors.push(`❌ المجموع خاطئ: ${total.toFixed(2)} (يجب يكون بين ${minExpectedTotal.toFixed(2)} و ${maxExpectedTotal.toFixed(2)})`);
+  }
+
+  // ٣. تحقق من الأسعار الخاطئة جداً (أقل من 1 ريال أو أكثر من 150 ريال)
+  const suspiciousItems = dedupedLines.filter(l => {
+    const price = l.line_total || 0;
+    return price < 1 || price > 150; // الدجاج حوالي 121 ريال، باقي العناصر أقل
+  });
+
+  if (suspiciousItems.length > 0) {
+    console.log(`⚠️ عناصر بأسعار مريبة:`);
+    suspiciousItems.forEach(item => {
+      console.log(`  - ${item.item_name}: ${item.line_total} ريال (سعر: ${item.unit_price})`);
+      if (item.line_total < 1) {
+        validationErrors.push(`❌ سعر منخفض جداً: ${item.item_name} = ${item.line_total}`);
+      }
+    });
+  }
+
+  // ٤. تحقق من وجود العناصر الرئيسية
+  const chickenItem = dedupedLines.find(l => l.item_name.includes("دجاج") || l.item_name.includes("SRA") || l.item_name.includes("chicken"));
+  if (!chickenItem || (chickenItem.line_total || 0) < 100) {
+    validationErrors.push(`❌ الدجاج المجمد مفقود أو بسعر خاطئ`);
+  }
+
+  console.log(`\n${validationErrors.length > 0 ? "❌ أخطاء التحقق:" : "✅ التحقق ناجح"}`);
+  validationErrors.forEach(err => console.log(`${err}`));
   console.log(`=================\n`);
+
+  // إذا كان هناك أخطاء حرجة، أرجع خطأ
+  if (validationErrors.length > 0) {
+    console.error(`فشل التحقق من البيانات المستخرجة`);
+  }
 
   // احفظ الشراء الجديد
   const { data: purchaseData, error: purchaseErr } = await db
