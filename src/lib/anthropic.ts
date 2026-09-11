@@ -234,7 +234,8 @@ export async function extractInvoiceLines(
 
   // حتى مع المعالجة المتسلسلة، كل دفعة معالجة مستقلة لا تعرف عن الدفعات الأخرى.
   // لذا قد يحدث تكرار بين الدفعات (مثلاً نفس السلعة في الصورة 2 والصورة 4).
-  // نقسّم كل دفعة إلى مجموعات صغيرة ونشغّل dedupeLines على المجموعة كاملة.
+  // لا نشغّل dedupeLines هنا لأنها قد تحذف عناصر صحيحة بالخطأ.
+  // الـ deduplication الدقيق يحصل في finalize-invoice/route.ts
   const allLines = results.flat();
-  return await dedupeLines(allLines);
+  return allLines;
 }
