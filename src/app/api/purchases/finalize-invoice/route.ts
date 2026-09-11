@@ -71,13 +71,28 @@ export async function POST(req: NextRequest) {
   // حذف التكرار: بحثية بسيطة جداً عن عناصر متطابقة تماماً (نفس الاسم والسعر والكمية)
   // هذا يتجنب حذف منتجات مختلفة بالخطأ
   const dedupMap = new Map<string, ExtractedLine>();
+  const duplicatesRemoved: string[] = [];
   for (const line of allLines) {
     const key = `${line.item_name}|${line.quantity}|${line.unit_price}`;
     if (!dedupMap.has(key)) {
       dedupMap.set(key, line);
+    } else {
+      duplicatesRemoved.push(`${line.item_name} (qty: ${line.quantity}, price: ${line.unit_price})`);
     }
   }
   const dedupedLines = Array.from(dedupMap.values());
+  console.log(`\n=== استخراج الفاتورة ===`);
+  console.log(`السطور المستخرجة من جميع الصور: ${allLines.length}`);
+  console.log(`السطور بعد حذف التطابقات: ${dedupedLines.length}`);
+  console.log(`التطابقات المحذوفة: ${duplicatesRemoved.length}`);
+  if (duplicatesRemoved.length > 0) {
+    console.log(`تفاصيل المحذوفات:`);
+    duplicatesRemoved.slice(0, 10).forEach(item => console.log(`  - ${item}`));
+    if (duplicatesRemoved.length > 10) console.log(`  ... و ${duplicatesRemoved.length - 10} أخرى`);
+  }
+  console.log(`\nالمجموع قبل التطابقات: ${allLines.reduce((sum, l) => sum + (l.line_total || 0), 0).toFixed(2)}`);
+  console.log(`المجموع بعد حذف التطابقات: ${dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0).toFixed(2)}`);
+  console.log(`=================\n`);
 
   // احسب المجموع الكلي والتحقق من الخصومات
   const total = dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
