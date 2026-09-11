@@ -250,5 +250,17 @@ ${itemsList}
       removedDuplicates: allLines.length - itemCount,
       totalAmount: total,
     },
+    debug: {
+      totalBefore: allLines.reduce((sum, l) => sum + (l.line_total || 0), 0),
+      totalAfter: total,
+      expectedTotal: 518.82,
+      difference: total - 518.82,
+      itemCountBefore: allLines.length,
+      itemCountAfter: itemCount,
+      validationErrors: validationErrors.length > 0 ? validationErrors : [],
+      suspiciousItems: dedupedLines
+        .filter(l => (l.line_total || 0) < 1 || (l.line_total || 0) > 150)
+        .map(l => ({ name: l.item_name, line_total: l.line_total, unit_price: l.unit_price })),
+    },
   });
 }
