@@ -32,11 +32,13 @@ function extractJson<T>(raw: string): T {
   }
 }
 
-function firstText(content: Anthropic.ContentBlock[]): string {
-  for (const block of content) {
+function firstText(response: Anthropic.Message): string {
+  for (const block of response.content) {
     if (block.type === "text") return block.text;
   }
-  throw new Error("لم يرجع الذكاء الاصطناعي أي نص");
+  throw new Error(
+    `لم يرجع الذكاء الاصطناعي أي نص (سبب التوقف: ${response.stop_reason ?? "غير معروف"}) — جرّب صور أقل بنفس الطلب`,
+  );
 }
 
 /**
@@ -63,7 +65,7 @@ ${rawText}
     messages: [{ role: "user", content: prompt }],
   });
 
-  const items = extractJson<ParsedRequestItem[]>(firstText(response.content));
+  const items = extractJson<ParsedRequestItem[]>(firstText(response));
   if (!Array.isArray(items)) throw new Error("رد غير متوقع من الذكاء الاصطناعي");
   return items
     .filter((it) => it && typeof it.item_name === "string" && it.item_name.trim())
@@ -132,6 +134,10 @@ ${pendingList || "(لا توجد طلبات معلّقة حاليًا)"}
   const response = await client().messages.create({
     model: "claude-sonnet-5",
     max_tokens: 16000,
+    // مهمة استخراج منظّمة (OCR + تنسيق) لا تحتاج تفكير موسّع، وتعطيله
+    // يضمن كل ميزانية الرد تذهب للنص الفعلي بدل التفكير — خصوصًا مع
+    // عدة صور دفعة وحدة حيث قد يستهلك التفكير التلقائي الميزانية كاملة
+    thinking: { type: "disabled" },
     messages: [
       {
         role: "user",
@@ -148,7 +154,7 @@ ${pendingList || "(لا توجد طلبات معلّقة حاليًا)"}
     ],
   });
 
-  const lines = extractJson<ExtractedInvoiceLine[]>(firstText(response.content));
+  const lines = extractJson<ExtractedInvoiceLine[]>(firstText(response));
   if (!Array.isArray(lines)) throw new Error("رد غير متوقع من الذكاء الاصطناعي");
 
   return lines
