@@ -68,67 +68,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "لا توجد عناصر في الفاتورة" }, { status: 400 });
   }
 
-  // حذف التكرار باستخدام Claude - الطريقة الذكية جداً
-  let dedupedLines = allLines;
-  try {
-    const itemsList = allLines
-      .map(
-        (l, i) =>
-          `${i + 1}. "${l.item_name}" (الكمية: ${l.quantity}, السعر: ${l.unit_price}, المجموع: ${l.line_total})`,
-      )
-      .join("\n");
-
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4000,
-      messages: [
-        {
-          role: "user",
-          content: `أنت متخصص في تحديد العناصر المكررة في الفواتير بدقة عالية.
-
-عندي قائمة عناصر من فاتورة مستخرجة من 11 صورة (قد تحتوي تكرارات من التداخل بين الصور).
-
-اقرأ كل عنصرين بعناية وحدد أيهم التكرارات الفعلية (نفس المنتج بالفعل، مو منتجات مختلفة).
-
-معايير التكرار:
-- نفس اسم المنتج بصيغ مختلفة (مع/بدون انجليزي، مع/بدون دشات)
-- نفس الكمية
-- نفس أو قريب جداً السعر
-- مثال: "اولكر بيسكويت تشوكو" و "اولكر بيسكويت تشوكو - ULKER CHO" = تكرار
-
-أرجع JSON بهذا الشكل (بدون نص إضافي):
-{"toRemoveIndices": [2, 5, 9]}
-
-ملاحظات مهمة:
-- الفهرسة من 1 (الأول = 1)
-- احذف فقط النسخة الثانية من كل تكرار (احفظ الأول)
-- إذا لم يكن هناك تكرار: {"toRemoveIndices": []}
-- كن دقيقاً جداً - لا تحذف منتجات مختلفة حتى لو كانت متشابهة الاسم
-
-القائمة:
-${itemsList}`,
-        },
-      ],
-    });
-
-    const result = response.content[0];
-    if (result.type === "text") {
-      try {
-        const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed.toRemoveIndices) && parsed.toRemoveIndices.length > 0) {
-            dedupedLines = allLines.filter((_, i) => !parsed.toRemoveIndices.includes(i + 1));
-            console.log(`تم حذف ${parsed.toRemoveIndices.length} عنصر مكرر عبر Claude`);
-          }
-        }
-      } catch (e) {
-        console.error("فشل parsing JSON من Claude:", e);
-      }
+  // حذف التكرار: بحثية بسيطة جداً عن عناصر متطابقة تماماً (نفس الاسم والسعر والكمية)
+  // هذا يتجنب حذف منتجات مختلفة بالخطأ
+  const dedupMap = new Map<string, ExtractedLine>();
+  for (const line of allLines) {
+    const key = `${line.item_name}|${line.quantity}|${line.unit_price}`;
+    if (!dedupMap.has(key)) {
+      dedupMap.set(key, line);
     }
-  } catch (e) {
-    console.error("فشل حذف التكرار عبر Claude:", e);
   }
+  const dedupedLines = Array.from(dedupMap.values());
 
   // احسب المجموع الكلي والتحقق من الخصومات
   const total = dedupedLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
