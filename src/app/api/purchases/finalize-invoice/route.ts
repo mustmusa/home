@@ -68,60 +68,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "لا توجد عناصر في الفاتورة" }, { status: 400 });
   }
 
-  // حذف التكرار باستخدام Claude مع تحسينات أفضل
+  // حذف التكرار باستخدام خوارزمية محافظة جداً (لا تحذف إلا المطابقة 100%)
   let dedupedLines = allLines;
-  try {
-    const linesList = allLines
-      .map(
-        (l, i) =>
-          `${i + 1}. [${l.item_name}] الكمية:${l.quantity} السعر:${l.unit_price} المجموع:${l.line_total}`,
-      )
-      .join("\n");
+  const seen = new Map<string, number>();
+  const toRemoveIndices: number[] = [];
 
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2000,
-      messages: [
-        {
-          role: "user",
-          content: `أنت متخصص في كشف العناصر المكررة في الفواتير.
-
-عندي قائمة عناصر من فاتورة واحدة. البعض قد يكون مكرراً (نفس الاسم والسعر والكمية تماماً).
-
-أرجع JSON فقط بهذه الصيغة (بدون نص إضافي):
-{"toRemoveIndices": [1, 3, 5]}
-
-ملاحظات:
-- استخدم فهرسة من 1 (الرقم الأول = 1)
-- حذف فقط النسخ المكررة الإضافية (احفظ أول ظهور)
-- نفس الاسم والسعر والكمية = مكرر 100%
-- إذا لم يوجد تكرار، ارجع: {"toRemoveIndices": []}
-
-القائمة:
-${linesList}`,
-        },
-      ],
-    });
-
-    const result = response.content[0];
-    if (result.type === "text") {
-      try {
-        // حاول استخراج JSON من النص
-        const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed.toRemoveIndices) && parsed.toRemoveIndices.length > 0) {
-            dedupedLines = allLines.filter((_, i) => !parsed.toRemoveIndices.includes(i + 1));
-          }
-        }
-      } catch (e) {
-        console.error("فشل parsing JSON:", e);
-        // استخدم القائمة الكاملة إذا فشل parsing
-      }
+  for (let i = 0; i < allLines.length; i++) {
+    const line = allLines[i];
+    const key = `${line.item_name}|${line.quantity}|${line.unit_price}|${line.line_total}`;
+    if (seen.has(key)) {
+      toRemoveIndices.push(i);
+    } else {
+      seen.set(key, i);
     }
-  } catch (e) {
-    console.error("فشل حذف التكرار:", e);
-    // استخدم القائمة الكاملة إذا فشلت إزالة التكرار
+  }
+
+  if (toRemoveIndices.length > 0) {
+    dedupedLines = allLines.filter((_, i) => !toRemoveIndices.includes(i));
+    console.log(`تم حذف ${toRemoveIndices.length} عنصر مكرر تماماً`);
   }
 
   // احسب المجموع الكلي والتحقق من الخصومات
