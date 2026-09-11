@@ -157,7 +157,7 @@ ${pendingList || "(لا توجد)"}
 أعد المصفوفة الآن:`;
 
   const response = await client().messages.create({
-    model: "claude-sonnet-5",
+    model: "claude-opus-5",
     max_tokens: 16000,
     messages: [
       {
