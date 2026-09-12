@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { House } from "@/lib/types";
 
 type StoreGroup = {
   store_name: string;
   total: number;
   item_count: number;
   items: Array<{
+    id: string;
     name: string;
     qty: number | null;
     price: number | null;
     total: number;
+    destination: "house" | "warehouse";
+    house_id: string | null;
   }>;
 };
 
@@ -25,11 +29,23 @@ export default function PurchasedOrdersTab() {
   const [dateGroups, setDateGroups] = useState<DateGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<string>("all");
+  const [houses, setHouses] = useState<House[]>([]);
+  const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
+    loadHouses();
     load();
   }, []);
+
+  async function loadHouses() {
+    try {
+      const res = await fetch("/api/houses");
+      const data = await res.json();
+      setHouses(data.houses || []);
+    } catch (e) {
+      console.error("خطأ في تحميل البيوت:", e);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -57,10 +73,13 @@ export default function PurchasedOrdersTab() {
         );
 
         const items = (p.purchase_lines || []).map((l: any) => ({
+          id: l.id,
           name: l.item_name,
           qty: l.quantity,
           price: l.unit_price,
           total: l.line_total,
+          destination: l.destination || "warehouse",
+          house_id: l.house_id,
         }));
 
         if (storeGroup) {
@@ -98,6 +117,31 @@ export default function PurchasedOrdersTab() {
     if (newExpanded.has(date)) newExpanded.delete(date);
     else newExpanded.add(date);
     setExpandedDates(newExpanded);
+  }
+
+  async function updateItemDestination(lineId: string, destination: "house" | "warehouse", houseId?: string) {
+    setUpdating(lineId);
+    try {
+      const res = await fetch("/api/purchases/line", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineId,
+          destination,
+          houseId: destination === "house" ? houseId : null,
+        }),
+      });
+      if (res.ok) {
+        load();
+      } else {
+        const err = await res.json();
+        alert("خطأ: " + (err.error || "فشل التحديث"));
+      }
+    } catch (e) {
+      alert("خطأ في الاتصال بالخادم");
+    } finally {
+      setUpdating(null);
+    }
   }
 
   const stats = {
@@ -183,17 +227,40 @@ export default function PurchasedOrdersTab() {
                         </div>
 
                         {/* Items List */}
-                        <div className="space-y-1">
+                        <div className="space-y-2">
                           {store.items.map((item, i) => (
                             <div
                               key={i}
-                              className="flex justify-between items-center text-xs text-gray-600 py-1 border-t border-gray-100"
+                              className="flex justify-between items-center text-xs text-gray-600 py-2 px-2 border border-gray-100 rounded bg-gray-50"
                             >
-                              <span>{item.name}</span>
-                              <span className="text-right">
-                                {item.qty && `${item.qty}×`} {item.price} ريال ={" "}
-                                <span className="font-semibold">{item.total.toFixed(2)}</span>
-                              </span>
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-700">{item.name}</p>
+                                <p className="text-gray-500">
+                                  {item.qty && `${item.qty}×`} {item.price} ريال = {item.total.toFixed(2)}
+                                </p>
+                              </div>
+                              <div className="flex gap-1">
+                                <select
+                                  disabled={updating === item.id}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value === "warehouse") {
+                                      updateItemDestination(item.id, "warehouse");
+                                    } else {
+                                      updateItemDestination(item.id, "house", value);
+                                    }
+                                  }}
+                                  value={item.destination === "house" ? (item.house_id || "") : "warehouse"}
+                                  className="input text-xs py-1"
+                                >
+                                  <option value="warehouse">📦 المخزن</option>
+                                  {houses.map((h) => (
+                                    <option key={h.id} value={h.id}>
+                                      🏠 {h.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           ))}
                         </div>
