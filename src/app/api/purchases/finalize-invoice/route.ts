@@ -303,7 +303,7 @@ ${itemsList}
       differenceWithTax: totalWithTax - 596.64,
       itemCountBefore: allLines.length,
       itemCountAfter: itemCount,
-      validationErrors: validationErrors.length > 0 ? validationErrors : [],
+      validationErrors: criticalErrors.length > 0 ? criticalErrors : [],
       suspiciousItems: dedupedLines
         .filter(l => (l.line_total || 0) < 1 || (l.line_total || 0) > 150)
         .map(l => ({ name: l.item_name, line_total: l.line_total, unit_price: l.unit_price })),
