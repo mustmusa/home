@@ -13,6 +13,7 @@ export default function WarehouseManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [minStockLevels, setMinStockLevels] = useState<Record<string, number>>({});
+  const [selectedStat, setSelectedStat] = useState<"outOfStock" | "lowStock" | null>(null);
 
   const [name, setName] = useState("");
   const [qty, setQty] = useState("");
@@ -230,20 +231,77 @@ export default function WarehouseManager() {
               <p className="text-xs text-gray-600">القيمة الإجمالية</p>
               <p className="text-lg font-bold text-green-600">{totalValue.toFixed(0)}</p>
             </div>
-            <div className="text-center p-3 bg-red-50 rounded-lg border border-red-200">
+            <button
+              onClick={() => setSelectedStat(selectedStat === "lowStock" ? null : "lowStock")}
+              className="text-center p-3 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 cursor-pointer transition"
+            >
               <p className="text-xs text-gray-600">عناصر منخفضة</p>
               <p className="text-2xl font-bold text-red-600">{lowStockItems.length}</p>
-            </div>
-            <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200">
+            </button>
+            <button
+              onClick={() => setSelectedStat(selectedStat === "outOfStock" ? null : "outOfStock")}
+              className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200 hover:bg-orange-100 cursor-pointer transition"
+            >
               <p className="text-xs text-gray-600">عناصر نفذت</p>
               <p className="text-2xl font-bold text-orange-600">{outOfStockItems}</p>
-            </div>
+            </button>
             <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
               <p className="text-xs text-gray-600">الأصناف</p>
               <p className="text-2xl font-bold text-purple-600">{new Set(items.map(it => it.category)).size}</p>
             </div>
           </div>
         </section>
+
+        {/* عرض العناصر عند الضغط على الصندوق */}
+        {selectedStat === "outOfStock" && (
+          <section className="card">
+            <h2 className="font-bold mb-3 text-orange-600">📦 العناصر التي نفذت</h2>
+            {outOfStockItems === 0 ? (
+              <p className="text-center text-gray-400">لا توجد عناصر نفذت 🎉</p>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {items
+                  .filter((it) => it.quantity === 0 || it.quantity < 0)
+                  .map((item) => (
+                    <div key={item.id} className="flex justify-between items-center p-2 bg-orange-50 rounded border border-orange-200">
+                      <div>
+                        <p className="font-semibold">{item.name}</p>
+                        <p className="text-xs text-gray-500">{item.category}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-red-600">{item.quantity} {item.unit}</p>
+                        {item.unit_cost && <p className="text-xs text-gray-500">{item.unit_cost} ريال/الوحدة</p>}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {selectedStat === "lowStock" && (
+          <section className="card">
+            <h2 className="font-bold mb-3 text-red-600">⚠️ العناصر المنخفضة</h2>
+            {lowStockItems.length === 0 ? (
+              <p className="text-center text-gray-400">لا توجد عناصر منخفضة ✅</p>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {lowStockItems.map((item) => (
+                  <div key={item.id} className="flex justify-between items-center p-2 bg-red-50 rounded border border-red-200">
+                    <div>
+                      <p className="font-semibold">{item.name}</p>
+                      <p className="text-xs text-gray-500">{item.category}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-orange-600">{item.quantity} {item.unit}</p>
+                      {item.unit_cost && <p className="text-xs text-gray-500">{item.unit_cost} ريال/الوحدة</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* البحث والفلترة */}
         <section className="card">
