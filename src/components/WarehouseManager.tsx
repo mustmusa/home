@@ -221,7 +221,7 @@ export default function WarehouseManager() {
         {/* إحصائيات سريعة */}
         <section className="card">
           <h2 className="font-bold mb-3">📊 ملخص المخزن</h2>
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
             <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-xs text-gray-600">إجمالي العناصر</p>
               <p className="text-2xl font-bold text-blue-600">{totalItems}</p>
