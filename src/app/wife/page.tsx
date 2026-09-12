@@ -193,12 +193,20 @@ export default function WifeDashboard() {
               <p className="text-xs text-blue-100">🆔 {house?.id ? house.id.slice(0, 8) : "معرف البيت"}</p>
             </div>
           </div>
-          <button
-            onClick={logout}
-            className="text-white hover:bg-blue-700 px-4 py-2 rounded-lg transition text-sm font-semibold whitespace-nowrap h-fit"
-          >
-            ← خروج
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={logout}
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition text-sm font-bold whitespace-nowrap h-fit shadow-md"
+            >
+              🔓 خروج
+            </button>
+            <a
+              href="/login"
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition text-sm font-bold whitespace-nowrap text-center h-fit shadow-md"
+            >
+              🔐 دخول جديد
+            </a>
+          </div>
         </div>
       </div>
 
