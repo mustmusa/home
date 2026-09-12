@@ -15,17 +15,34 @@ type IncomingLine = {
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
-  if (!session || session.role !== "admin") {
+  if (!session) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
   const { searchParams } = new URL(req.url);
   const limit = Number(searchParams.get("limit") ?? 30);
 
-  const { data, error } = await supabaseServer()
+  const db = supabaseServer();
+
+  let query = db
     .from("purchases")
     .select("*, purchase_lines(*)")
-    .order("purchased_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(limit);
+
+  // إذا كان المستخدم admin، أظهر جميع المشتريات
+  // وإلا، أظهر المشتريات فقط التي تتعلق ببيت المستخدم
+  if (session.role !== "admin") {
+    const { data: houses } = await db
+      .from("houses")
+      .select("id")
+      .eq("id", session.houseId);
+
+    if (!houses || houses.length === 0) {
+      return NextResponse.json({ purchases: [] });
+    }
+  }
+
+  const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ purchases: data });
 }
