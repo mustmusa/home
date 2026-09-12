@@ -10,6 +10,9 @@ export default function WarehouseManager() {
   const [houses, setHouses] = useState<House[]>([]);
   const [pending, setPending] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState<string | null>(null);
+  const [minStockLevels, setMinStockLevels] = useState<Record<string, number>>({});
 
   const [name, setName] = useState("");
   const [qty, setQty] = useState("");
@@ -176,6 +179,19 @@ export default function WarehouseManager() {
     load();
   }
 
+  const totalItems = items.filter((it) => it.quantity > 0).length;
+  const totalValue = items.reduce((sum, it) => sum + (Number(it.quantity || 0) * Number(it.unit_cost || 0)), 0);
+  const lowStockItems = items.filter((it) => {
+    const minLevel = minStockLevels[it.id] ?? 20;
+    return it.quantity > 0 && it.quantity < minLevel;
+  });
+
+  const filteredItems = items.filter((it) => {
+    const matchesSearch = it.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = !filterCategory || it.category === filterCategory;
+    return matchesSearch && matchesCategory && it.quantity > 0;
+  });
+
   return (
     <div className="flex flex-col gap-4">
       <nav className="card !p-2 flex gap-1">
@@ -201,6 +217,52 @@ export default function WarehouseManager() {
 
       {tab === "items" && (
         <>
+        {/* إحصائيات سريعة */}
+        <section className="card">
+          <h2 className="font-bold mb-3">📊 ملخص المخزن</h2>
+          <div className="grid grid-cols-4 gap-2">
+            <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-xs text-gray-600">إجمالي العناصر</p>
+              <p className="text-2xl font-bold text-blue-600">{totalItems}</p>
+            </div>
+            <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+              <p className="text-xs text-gray-600">القيمة الإجمالية</p>
+              <p className="text-lg font-bold text-green-600">{totalValue.toFixed(0)}</p>
+            </div>
+            <div className="text-center p-3 bg-red-50 rounded-lg border border-red-200">
+              <p className="text-xs text-gray-600">عناصر منخفضة</p>
+              <p className="text-2xl font-bold text-red-600">{lowStockItems.length}</p>
+            </div>
+            <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
+              <p className="text-xs text-gray-600">الأصناف</p>
+              <p className="text-2xl font-bold text-purple-600">{new Set(items.map(it => it.category)).size}</p>
+            </div>
+          </div>
+        </section>
+
+        {/* البحث والفلترة */}
+        <section className="card">
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              placeholder="🔍 ابحثي عن عنصر..."
+              className="input"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <select
+              className="input"
+              value={filterCategory || ""}
+              onChange={(e) => setFilterCategory(e.target.value || null)}
+            >
+              <option value="">📂 جميع الأصناف</option>
+              {Array.from(new Set(items.map(it => it.category).filter((c): c is string => c !== null))).map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+        </section>
+
       <section className="card">
         <h2 className="font-bold mb-3">إضافة للمخزون</h2>
         <form onSubmit={addItem} className="grid grid-cols-2 gap-3">
@@ -298,15 +360,23 @@ export default function WarehouseManager() {
       </section>
 
       <section className="card">
-        <h2 className="font-bold mb-3">المخزون الحالي</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold">المخزون الحالي</h2>
+          <span className="text-xs text-gray-500">{filteredItems.length} عنصر</span>
+        </div>
         {loading ? (
           <p className="text-gray-400 text-sm">جارٍ التحميل...</p>
-        ) : items.filter((it) => it.quantity > 0).length === 0 ? (
-          <p className="text-gray-400 text-sm">المخزن فارغ حاليًا.</p>
+        ) : filteredItems.length === 0 ? (
+          <p className="text-gray-400 text-sm">لا توجد عناصر متطابقة.</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {items.filter((it) => it.quantity > 0).map((it) =>
-              editingId === it.id ? (
+          <div className="flex flex-col gap-3">
+            {filteredItems.map((it) => {
+              const minLevel = minStockLevels[it.id] ?? 20;
+              const percentage = Math.min(100, (Number(it.quantity) / minLevel) * 100);
+              const stockColor = percentage < 25 ? "bg-red-500" : percentage < 50 ? "bg-yellow-500" : "bg-green-500";
+              const stockLabel = percentage < 25 ? "🔴 حرج" : percentage < 50 ? "🟡 منخفض" : "🟢 جيد";
+
+              return editingId === it.id ? (
                 <div key={it.id} className="border border-primary/30 bg-blue-50 rounded-lg p-3 flex flex-col gap-2">
                   <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="الاسم" />
                   <div className="grid grid-cols-3 gap-2">
@@ -328,6 +398,13 @@ export default function WarehouseManager() {
                       placeholder="تكلفة الوحدة"
                     />
                   </div>
+                  <input
+                    className="input"
+                    type="number"
+                    placeholder="الحد الأدنى للطلب"
+                    value={minStockLevels[it.id] ?? 20}
+                    onChange={(e) => setMinStockLevels({...minStockLevels, [it.id]: Number(e.target.value)})}
+                  />
                   <select className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
                     <option value="">بدون تصنيف</option>
                     {CATEGORIES.map((c) => (
@@ -347,27 +424,44 @@ export default function WarehouseManager() {
                   </div>
                 </div>
               ) : (
-                <div key={it.id} className="border border-gray-100 rounded-lg p-3 flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-medium text-sm">{it.name}</p>
-                    <p className="text-xs text-gray-400">
-                      {it.quantity} {it.unit ?? ""} · {it.category ?? "بدون تصنيف"} ·{" "}
-                      {it.unit_cost != null
-                        ? `${it.unit_cost} / وحدة — القيمة ${(Number(it.quantity) * Number(it.unit_cost)).toFixed(2)}`
-                        : "بدون تكلفة"}
-                    </p>
+                <div key={it.id} className={`border rounded-lg p-3 flex flex-col gap-2 ${percentage < 25 ? "border-red-200 bg-red-50" : percentage < 50 ? "border-yellow-200 bg-yellow-50" : "border-gray-100"}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{it.name}</p>
+                      <p className="text-xs text-gray-500">{it.category ?? "بدون تصنيف"}</p>
+                    </div>
+                    <span className="text-xs font-semibold px-2 py-1 rounded bg-white">{stockLabel}</span>
                   </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button onClick={() => startEdit(it)} className="text-primary text-xs font-semibold">
-                      تعديل
+
+                  {/* مؤشر المخزون */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
+                      <div className={`${stockColor} h-full rounded-full transition-all`} style={{ width: `${Math.min(100, percentage)}%` }} />
+                    </div>
+                    <span className="text-xs font-semibold text-gray-600 w-12 text-right">{percentage.toFixed(0)}%</span>
+                  </div>
+
+                  <p className="text-xs text-gray-600">
+                    <span className="font-semibold">{it.quantity}</span> {it.unit} / الحد الأدنى: <span className="font-semibold">{minLevel}</span>
+                  </p>
+
+                  {it.unit_cost && (
+                    <p className="text-xs text-gray-500">
+                      {it.unit_cost} ريال/وحدة • القيمة: <span className="font-semibold">{(Number(it.quantity) * Number(it.unit_cost)).toFixed(0)} ريال</span>
+                    </p>
+                  )}
+
+                  <div className="flex gap-2 shrink-0 justify-end">
+                    <button onClick={() => startEdit(it)} className="text-primary text-xs font-semibold px-2 py-1 rounded border border-primary/30 hover:bg-blue-50">
+                      ✏️ تعديل
                     </button>
-                    <button onClick={() => deleteItem(it.id)} className="text-red-500 text-xs font-semibold">
-                      حذف
+                    <button onClick={() => deleteItem(it.id)} className="text-red-500 text-xs font-semibold px-2 py-1 rounded border border-red-200 hover:bg-red-50">
+                      🗑️ حذف
                     </button>
                   </div>
                 </div>
-              ),
-            )}
+              );
+            })}
           </div>
         )}
       </section>
