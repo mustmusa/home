@@ -10,11 +10,19 @@ type RequestByDate = {
   age: "new" | "old" | "very_old";
 };
 
+type PurchaseItem = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
 type PurchaseByDate = {
   date: string;
   storeName: string;
   totalAmount: number;
   itemCount: number;
+  items: PurchaseItem[];
 };
 
 export default function WifeDashboard() {
@@ -27,6 +35,7 @@ export default function WifeDashboard() {
   const [pendingRequests, setPendingRequests] = useState<RequestByDate[]>([]);
   const [purchasedRequests, setPurchasedRequests] = useState<PurchaseByDate[]>([]);
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+  const [expandedPurchases, setExpandedPurchases] = useState<Set<string>>(new Set());
 
   const [newRequestText, setNewRequestText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -90,16 +99,23 @@ export default function WifeDashboard() {
         .filter((r: PurchaseRequest) => r.status === "purchased")
         .forEach((r: PurchaseRequest) => {
           const date = String(r.requested_at).slice(0, 10);
-          const key = date;
+          const key = `${date}-requested`;
           if (!purchasedData[key]) {
             purchasedData[key] = {
               date,
-              storeName: "طلب مشترى",
+              storeName: "🎯 طلب مشترى",
               totalAmount: 0,
               itemCount: 0,
+              items: [],
             };
           }
           purchasedData[key].itemCount += 1;
+          purchasedData[key].items.push({
+            name: r.item_name || "عنصر",
+            quantity: 1,
+            unitPrice: 0,
+            lineTotal: 0,
+          });
         });
 
       // 2. إضافة المشتريات من الفواتير
@@ -108,26 +124,38 @@ export default function WifeDashboard() {
         const date = p.created_at.slice(0, 10);
         const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id);
         if (items.length > 0) {
-          const key = date;
+          const key = `${date}-invoice`;
           if (!purchasedData[key]) {
             purchasedData[key] = {
               date,
               storeName: p.store_name || "متجر",
               totalAmount: 0,
               itemCount: 0,
+              items: [],
             };
           }
-          purchasedData[key].totalAmount += items.reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
+          const totalLineAmount = items.reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
+          purchasedData[key].totalAmount += totalLineAmount;
           purchasedData[key].itemCount += items.length;
+          items.forEach((item: any) => {
+            purchasedData[key].items.push({
+              name: item.item_name || "عنصر",
+              quantity: Number(item.quantity || 1),
+              unitPrice: item.quantity ? Number(item.line_total) / Number(item.quantity) : 0,
+              lineTotal: Number(item.line_total || 0),
+            });
+          });
         }
       });
 
-      const purchasedByDate: PurchaseByDate[] = Object.values(purchasedData)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 20);
+      const allPurchasedByDate: PurchaseByDate[] = Object.values(purchasedData)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+      const purchasedByDate = allPurchasedByDate.slice(0, 50);
       setPurchasedRequests(purchasedByDate);
-      setStats((s) => ({ ...s, purchased: purchasedByDate.length, totalSpent: purchasedByDate.reduce((s, p) => s + p.totalAmount, 0) }));
+
+      const totalSpent = allPurchasedByDate.reduce((s, p) => s + p.totalAmount, 0);
+      setStats((s) => ({ ...s, purchased: allPurchasedByDate.length, totalSpent }));
 
       if (pendingByDate.length > 0) {
         setExpandedDates(new Set([pendingByDate[0].date]));
@@ -350,22 +378,49 @@ export default function WifeDashboard() {
             <p className="text-gray-400 text-sm text-center">لم تُشترَ أي طلبات بعد</p>
           ) : (
             <div className="space-y-3">
-              {purchasedRequests.map((purchase) => (
-                <div key={purchase.date} className="border border-green-200 bg-green-50 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className="font-semibold text-sm">
-                        📅 {new Date(purchase.date).toLocaleDateString("ar-SA", { month: "short", day: "numeric" })}
-                      </p>
-                      <p className="text-xs text-gray-600">{purchase.storeName}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-green-600">{purchase.totalAmount.toFixed(0)} ريال</p>
-                      <p className="text-xs text-gray-600">{purchase.itemCount} عنصر</p>
-                    </div>
+              {purchasedRequests.map((purchase) => {
+                const key = purchase.date;
+                const isExpanded = expandedPurchases.has(key);
+                return (
+                  <div key={key} className="border border-green-200 bg-green-50 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => {
+                        const newSet = new Set(expandedPurchases);
+                        if (newSet.has(key)) newSet.delete(key);
+                        else newSet.add(key);
+                        setExpandedPurchases(newSet);
+                      }}
+                      className="w-full p-3 hover:bg-green-100 flex items-center justify-between text-left"
+                    >
+                      <div>
+                        <p className="font-semibold text-sm">
+                          📅 {new Date(purchase.date).toLocaleDateString("ar-SA", { month: "short", day: "numeric" })}
+                        </p>
+                        <p className="text-xs text-gray-600">{purchase.storeName}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-green-600">{purchase.totalAmount.toFixed(0)} ريال</p>
+                        <p className="text-xs text-gray-600">{purchase.itemCount} عنصر</p>
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="bg-white border-t border-green-200 p-3 space-y-2">
+                        {purchase.items.map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm border-b border-gray-100 pb-2 last:border-0">
+                            <div className="flex-1">
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-xs text-gray-500">
+                                {item.quantity} × {item.unitPrice.toFixed(2)} ريال
+                              </p>
+                            </div>
+                            <p className="font-semibold text-green-600">{item.lineTotal.toFixed(2)} ريال</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
