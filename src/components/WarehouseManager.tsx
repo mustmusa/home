@@ -232,15 +232,23 @@ export default function WarehouseManager() {
               <p className="text-lg font-bold text-green-600">{totalValue.toFixed(0)}</p>
             </div>
             <button
-              onClick={() => setSelectedStat(selectedStat === "lowStock" ? null : "lowStock")}
-              className="text-center p-3 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 cursor-pointer transition"
+              type="button"
+              onClick={() => {
+                console.log("Clicked lowStock");
+                setSelectedStat(selectedStat === "lowStock" ? null : "lowStock");
+              }}
+              className="text-center p-3 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 cursor-pointer transition active:scale-95"
             >
               <p className="text-xs text-gray-600">عناصر منخفضة</p>
               <p className="text-2xl font-bold text-red-600">{lowStockItems.length}</p>
             </button>
             <button
-              onClick={() => setSelectedStat(selectedStat === "outOfStock" ? null : "outOfStock")}
-              className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200 hover:bg-orange-100 cursor-pointer transition"
+              type="button"
+              onClick={() => {
+                console.log("Clicked outOfStock");
+                setSelectedStat(selectedStat === "outOfStock" ? null : "outOfStock");
+              }}
+              className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200 hover:bg-orange-100 cursor-pointer transition active:scale-95"
             >
               <p className="text-xs text-gray-600">عناصر نفذت</p>
               <p className="text-2xl font-bold text-orange-600">{outOfStockItems}</p>
