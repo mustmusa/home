@@ -167,6 +167,12 @@ export default function WifeDashboard() {
   const ageEmoji = { new: "🟢", old: "🟡", very_old: "🔴" };
   const ageLabel = { new: "جديد", old: "قديم", very_old: "قديم جداً" };
 
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
   if (loading) return <p className="text-gray-400 text-sm p-4">جارٍ التحميل...</p>;
 
   return (
@@ -188,7 +194,7 @@ export default function WifeDashboard() {
             </div>
           </div>
           <button
-            onClick={() => router.push("/")}
+            onClick={logout}
             className="text-white hover:bg-blue-700 px-4 py-2 rounded-lg transition text-sm font-semibold whitespace-nowrap h-fit"
           >
             ← خروج
