@@ -96,9 +96,12 @@ export default function WifeDashboard() {
 
       // 1. إضافة جميع الفواتير والعناصر المشتراة
       const purchases = purchasesRes.purchases ?? [];
+      console.log("📊 Purchases data:", purchases.slice(0, 2)); // Debug
+
       purchases.forEach((p: any) => {
         const date = p.created_at.slice(0, 10);
         const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id);
+
         if (items.length > 0) {
           const key = `${date}-${p.id}`;
           if (!purchasedData[key]) {
@@ -110,10 +113,13 @@ export default function WifeDashboard() {
               items: [],
             };
           }
+
           items.forEach((item: any) => {
             const lineTotal = Number(item.line_total || 0);
             const quantity = Number(item.quantity || 1);
-            const unitPrice = quantity > 0 ? lineTotal / quantity : 0;
+            const unitPrice = lineTotal > 0 && quantity > 0 ? lineTotal / quantity : 0;
+
+            console.log(`📦 Item: ${item.item_name}, total: ${lineTotal}, qty: ${quantity}, price: ${unitPrice}`); // Debug
 
             purchasedData[key].items.push({
               name: item.item_name || "عنصر",
