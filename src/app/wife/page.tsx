@@ -170,15 +170,27 @@ export default function WifeDashboard() {
   if (loading) return <p className="text-gray-400 text-sm p-4">جارٍ التحميل...</p>;
 
   return (
-    <div className="px-4 -mt-6 max-w-2xl mx-auto">
-      {/* Header */}
-      <div className="card mb-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">🏠 {house?.name}</h1>
-            <p className="text-blue-100 text-sm">مرحباً {user?.name}</p>
+    <div className="px-4 -mt-6 max-w-2xl mx-auto pb-4">
+      {/* Header محسّن */}
+      <div className="card mb-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-2xl shadow-lg">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-4xl">🏠</span>
+              <div>
+                <h1 className="text-2xl font-bold">{house?.name || "بيتك"}</h1>
+                <p className="text-blue-100 text-sm">👤 {user?.name || "المستخدم"}</p>
+              </div>
+            </div>
+            <div className="bg-blue-400 bg-opacity-30 rounded-lg p-2">
+              <p className="text-xs text-blue-100">📱 {user?.phone || "رقم الهاتف"}</p>
+              <p className="text-xs text-blue-100">🆔 {house?.id ? house.id.slice(0, 8) : "معرف البيت"}</p>
+            </div>
           </div>
-          <button onClick={() => router.push("/")} className="text-white hover:bg-blue-700 px-3 py-2 rounded">
+          <button
+            onClick={() => router.push("/")}
+            className="text-white hover:bg-blue-700 px-4 py-2 rounded-lg transition text-sm font-semibold whitespace-nowrap h-fit"
+          >
             ← خروج
           </button>
         </div>
