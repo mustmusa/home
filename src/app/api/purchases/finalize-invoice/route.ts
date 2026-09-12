@@ -184,7 +184,7 @@ ${itemsList}
     console.log(`⚠️ عناصر بأسعار مريبة:`);
     suspiciousItems.forEach(item => {
       console.log(`  - ${item.item_name}: ${item.line_total} ريال (سعر: ${item.unit_price})`);
-      if (item.line_total < 1) {
+      if ((item.line_total || 0) < 1) {
         validationErrors.push(`❌ سعر منخفض جداً: ${item.item_name} = ${item.line_total}`);
       }
     });
@@ -206,7 +206,6 @@ ${itemsList}
   }
 
   // احفظ الشراء الجديد
-  const totalWithTax = Math.round(total * 1.15 * 100) / 100;
   const { data: purchaseData, error: purchaseErr } = await db
     .from("purchases")
     .insert({
