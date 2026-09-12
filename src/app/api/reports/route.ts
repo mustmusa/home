@@ -48,8 +48,9 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const warehousePurchasesThisMonth = (monthLines ?? [])
-    .filter((l) => l.destination === "warehouse" && l.source === "invoice")
+  // حساب مصاريف العنصر المسحوب من المخزن للبيوت
+  const warehouseToHouseTotal = (monthLines ?? [])
+    .filter((l) => l.destination === "house" && l.source === "warehouse")
     .reduce((s, r) => s + Number(r.line_total || 0), 0);
 
   // ---- المخزون الحالي ----
@@ -94,7 +95,6 @@ export async function GET(req: NextRequest) {
     month,
     year,
     houseTotals,
-    warehouseTotal: warehousePurchasesThisMonth,
     warehouse: {
       items: warehouseItems,
       totalValue: warehouseValue,

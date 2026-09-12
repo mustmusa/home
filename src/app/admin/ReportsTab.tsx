@@ -6,7 +6,6 @@ type ReportData = {
   month: string;
   year: number;
   houseTotals: { house_id: string; name: string; total: number; count: number }[];
-  warehouseTotal: number;
   warehouse: {
     items: { id: string; name: string; quantity: number; unit: string | null; unit_cost: number | null }[];
     totalValue: number;
@@ -58,7 +57,7 @@ export default function ReportsTab() {
         <>
           {/* Summary Card */}
           <section className="card">
-            <h3 className="font-bold mb-4">📊 ملخص المصاريف</h3>
+            <h3 className="font-bold mb-4">📊 ملخص المصاريف والمخزن</h3>
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="border border-blue-200 rounded-lg p-3 text-center bg-blue-50">
                 <p className="text-sm text-gray-600">مصاريف البيوت</p>
@@ -66,15 +65,15 @@ export default function ReportsTab() {
                   {data.houseTotals.reduce((sum, h) => sum + h.total, 0).toFixed(2)}
                 </p>
               </div>
-              <div className="border border-orange-200 rounded-lg p-3 text-center bg-orange-50">
-                <p className="text-sm text-gray-600">مصاريف المخزن</p>
-                <p className="text-2xl font-bold text-orange-600">{data.warehouseTotal.toFixed(2)}</p>
+              <div className="border border-purple-200 rounded-lg p-3 text-center bg-purple-50">
+                <p className="text-sm text-gray-600">قيمة المخزن الحالية</p>
+                <p className="text-2xl font-bold text-purple-600">{data.warehouse.totalValue.toFixed(2)}</p>
               </div>
             </div>
             <div className="border border-green-200 rounded-lg p-3 text-center bg-green-50">
               <p className="text-sm text-gray-600">الإجمالي الكلي</p>
               <p className="text-3xl font-bold text-green-600">
-                {(data.houseTotals.reduce((sum, h) => sum + h.total, 0) + data.warehouseTotal).toFixed(2)}
+                {(data.houseTotals.reduce((sum, h) => sum + h.total, 0) + data.warehouse.totalValue).toFixed(2)}
               </p>
             </div>
           </section>
