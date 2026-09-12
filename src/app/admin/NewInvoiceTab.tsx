@@ -386,6 +386,22 @@ export default function NewInvoiceTab() {
   const total = lines.reduce((s, l) => s + Number(l.line_total || 0), 0);
   const needsManualMatch = (l: EditableLine) => l.destination === "warehouse" && !l.matched_request_id;
 
+  function addNewLine() {
+    const newKey = String(Date.now());
+    const newLine: EditableLine = {
+      key: newKey,
+      item_name: "",
+      quantity: "",
+      unit_price: "",
+      line_total: "0",
+      category: "أخرى",
+      destination: "warehouse",
+      house_id: "",
+      matched_request_id: "",
+    };
+    setLines((prev) => [...prev, newLine]);
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {step === "upload" && (
@@ -517,10 +533,10 @@ export default function NewInvoiceTab() {
           {/* Header row */}
           <div className="grid grid-cols-1 gap-3 mb-2">
             <div className="grid grid-cols-4 gap-2 text-xs font-bold text-gray-600 px-1">
-              <div>السعر مع الضريبة (15%)</div>
-              <div>السعر الأساسي</div>
-              <div>الكمية</div>
-              <div>الإجمالي</div>
+              <div className="text-gray-400">السعر مع الضريبة (عرض فقط)</div>
+              <div>السعر الأساسي ✏️</div>
+              <div>الكمية ✏️</div>
+              <div>الإجمالي ✏️</div>
             </div>
           </div>
 
@@ -582,6 +598,14 @@ export default function NewInvoiceTab() {
               </div>
             ))}
           </div>
+
+          <button
+            type="button"
+            className="btn-secondary w-full mt-4"
+            onClick={addNewLine}
+          >
+            + إضافة عنصر جديد
+          </button>
 
           <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
             <div className="flex flex-col gap-1">
