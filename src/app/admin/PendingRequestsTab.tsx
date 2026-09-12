@@ -17,6 +17,7 @@ export default function PendingRequestsTab() {
   const [loading, setLoading] = useState(true);
   const [linkingRequestId, setLinkingRequestId] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [selectedHouse, setSelectedHouse] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,11 +77,57 @@ export default function PendingRequestsTab() {
 
   if (loading) return <p className="text-gray-400 text-sm">جارٍ التحميل...</p>;
 
+  const totalRequests = requests.length;
+  const requestsByHouse = houses.map(h => ({
+    ...h,
+    count: requests.filter(r => r.house_id === h.id).length
+  }));
+
+  const filteredRequests = selectedHouse
+    ? requests.filter(r => r.house_id === selectedHouse)
+    : requests;
+
   return (
     <div className="flex flex-col gap-4">
-      {houses.map((h) => {
-        const list = requests.filter((r) => r.house_id === h.id);
-        return (
+      {/* إحصائيات */}
+      <section className="card">
+        <h2 className="font-bold mb-3">📊 ملخص الطلبات المعلقة</h2>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-xs text-gray-600">إجمالي الطلبات</p>
+            <p className="text-2xl font-bold text-blue-600">{totalRequests}</p>
+          </div>
+          <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
+            <p className="text-xs text-gray-600">البيوت النشطة</p>
+            <p className="text-2xl font-bold text-purple-600">{requestsByHouse.filter(h => h.count > 0).length}</p>
+          </div>
+        </div>
+
+        {/* فلترة حسب البيت */}
+        <select
+          className="input w-full"
+          value={selectedHouse || ""}
+          onChange={(e) => setSelectedHouse(e.target.value || null)}
+        >
+          <option value="">🏠 جميع البيوت ({totalRequests})</option>
+          {requestsByHouse.filter(h => h.count > 0).map((h) => (
+            <option key={h.id} value={h.id}>{h.name} ({h.count})</option>
+          ))}
+        </select>
+      </section>
+
+      {/* قائمة الطلبات */}
+      {filteredRequests.length === 0 ? (
+        <p className="text-gray-400 text-sm text-center">لا توجد طلبات معلّقة 🎉</p>
+      ) : (
+        <section className="card">
+          <h2 className="font-bold mb-3">⏳ الطلبات ({filteredRequests.length})</h2>
+          <div className="flex flex-col gap-3">
+            {houses.map((h) => {
+              if (selectedHouse && h.id !== selectedHouse) return null;
+              const list = filteredRequests.filter((r) => r.house_id === h.id);
+              if (list.length === 0) return null;
+              return (
           <section key={h.id} className="card">
             <h2 className="font-bold mb-3">
               {h.name} <span className="text-gray-400 text-sm">({list.length})</span>
@@ -140,10 +187,12 @@ export default function PendingRequestsTab() {
                 ))}
               </ul>
             )}
-          </section>
-        );
-      })}
-      {requests.length === 0 && <p className="text-gray-400 text-sm text-center">لا يوجد أي طلبات معلّقة حاليًا 🎉</p>}
+              </section>
+            );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
