@@ -151,58 +151,68 @@ ${itemsList}
   const itemCount = dedupedLines.length;
   const totalWithTax = Math.round(total * 1.15 * 100) / 100;
 
-  // تحقق من أن النتيجة معقولة
-  const expectedBaseTotal = 518.82;
-  const expectedItemCount = 54;
-  const validationErrors: string[] = [];
+  // تحقق من أن النتيجة معقولة (مرن أكثر من السابق)
+  const validationWarnings: string[] = [];
+  const criticalErrors: string[] = [];
 
   console.log(`\n=== التحقق من معقولية النتائج ===`);
-  console.log(`العناصر المتوقعة: ${expectedItemCount}, المستخرجة: ${itemCount}`);
-  console.log(`المجموع المتوقع (بدون ضريبة): ${expectedBaseTotal}`);
-  console.log(`المستخرج (بدون ضريبة): ${total.toFixed(2)}`);
-  console.log(`المستخرج (مع 15% ضريبة): ${totalWithTax}`);
+  console.log(`العناصر المستخرجة: ${itemCount}`);
+  console.log(`المجموع (بدون ضريبة): ${total.toFixed(2)}`);
+  console.log(`المجموع (مع 15% ضريبة): ${totalWithTax}`);
 
-  // ١. تحقق من عدد العناصر
-  if (itemCount !== expectedItemCount) {
-    validationErrors.push(`❌ عدد العناصر خاطئ: ${itemCount} بدل ${expectedItemCount}`);
+  // تحذير إذا كان عدد العناصر غير معقول (أقل من 5 أو أكثر من 200)
+  if (itemCount < 5) {
+    validationWarnings.push(`⚠️ تنبيه: عدد العناصر قليل جداً (${itemCount})`);
+  } else if (itemCount > 200) {
+    validationWarnings.push(`⚠️ تنبيه: عدد العناصر كبير جداً (${itemCount})`);
   }
 
-  // ٢. تحقق من المجموع (يجب يكون قريب من 518.82 بـ ±5% - أدق الآن لأننا نقرأ السعر الأساسي فقط)
-  const minExpectedTotal = expectedBaseTotal * 0.95;
-  const maxExpectedTotal = expectedBaseTotal * 1.05;
-  if (total < minExpectedTotal || total > maxExpectedTotal) {
-    validationErrors.push(`❌ المجموع خاطئ: ${total.toFixed(2)} (يجب يكون بين ${minExpectedTotal.toFixed(2)} و ${maxExpectedTotal.toFixed(2)})`);
+  // تحذير إذا كان المجموع = 0
+  if (total === 0) {
+    criticalErrors.push(`❌ المجموع = 0 ريال - فشل استخراج الأسعار`);
   }
 
-  // ٣. تحقق من الأسعار الخاطئة جداً (أقل من 1 ريال أو أكثر من 150 ريال)
+  // تحذير إذا كان المجموع أقل من 10 (غير معقول)
+  if (total > 0 && total < 10) {
+    validationWarnings.push(`⚠️ المجموع قليل جداً: ${total.toFixed(2)} ريال`);
+  }
+
+  // ٣. تحقق من الأسعار الخاطئة جداً
+  const zeroOrNullPriceItems = dedupedLines.filter(l => (l.line_total || 0) === 0);
+  if (zeroOrNullPriceItems.length > 0) {
+    console.log(`⚠️ ${zeroOrNullPriceItems.length} عنصر بسعر 0:`);
+    zeroOrNullPriceItems.slice(0, 5).forEach(item => {
+      console.log(`  - ${item.item_name}: ${item.line_total} (qty: ${item.quantity}, price: ${item.unit_price})`);
+    });
+    if (zeroOrNullPriceItems.length > 5) {
+      console.log(`  ... و ${zeroOrNullPriceItems.length - 5} آخرين`);
+    }
+    validationWarnings.push(`⚠️ ${zeroOrNullPriceItems.length} عنصر بدون سعر - يجب تصحيحها في خطوة المراجعة`);
+  }
+
   const suspiciousItems = dedupedLines.filter(l => {
     const price = l.line_total || 0;
-    return price < 1 || price > 150; // الدجاج حوالي 121 ريال، باقي العناصر أقل
+    return price > 500; // أسعار غير معقولة
   });
 
   if (suspiciousItems.length > 0) {
-    console.log(`⚠️ عناصر بأسعار مريبة:`);
+    console.log(`⚠️ عناصر بأسعار عالية جداً:`);
     suspiciousItems.forEach(item => {
-      console.log(`  - ${item.item_name}: ${item.line_total} ريال (سعر: ${item.unit_price})`);
-      if ((item.line_total || 0) < 1) {
-        validationErrors.push(`❌ سعر منخفض جداً: ${item.item_name} = ${item.line_total}`);
-      }
+      console.log(`  - ${item.item_name}: ${item.line_total} ريال`);
     });
   }
 
-  // ٤. تحقق من وجود العناصر الرئيسية
-  const chickenItem = dedupedLines.find(l => l.item_name.includes("دجاج") || l.item_name.includes("SRA") || l.item_name.includes("chicken"));
-  if (!chickenItem || (chickenItem.line_total || 0) < 100) {
-    validationErrors.push(`❌ الدجاج المجمد مفقود أو بسعر خاطئ`);
+  console.log(`\n${validationWarnings.length > 0 ? "⚠️ تحذيرات:" : "✅ التحقق ناجح"}`);
+  validationWarnings.forEach(w => console.log(`${w}`));
+  if (criticalErrors.length > 0) {
+    console.log(`\n❌ أخطاء حرجة:`);
+    criticalErrors.forEach(err => console.log(`${err}`));
   }
-
-  console.log(`\n${validationErrors.length > 0 ? "❌ أخطاء التحقق:" : "✅ التحقق ناجح"}`);
-  validationErrors.forEach(err => console.log(`${err}`));
   console.log(`=================\n`);
 
-  // إذا كان هناك أخطاء حرجة، أرجع خطأ
-  if (validationErrors.length > 0) {
-    console.error(`فشل التحقق من البيانات المستخرجة`);
+  // إذا كان هناك أخطاء حرجة حقاً، أرجع خطأ
+  if (criticalErrors.length > 0) {
+    return NextResponse.json({ error: "فشل التحقق من البيانات المستخرجة: " + criticalErrors[0] }, { status: 400 });
   }
 
   // تحقق من الفواتير المكررة (نفس المجموع ± 10 ريال من نفس اليوم)
