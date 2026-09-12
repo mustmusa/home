@@ -390,17 +390,34 @@ export default function WifeDashboard() {
                     </button>
                     {isExpanded && (
                       <div className="bg-white border-t border-green-200 p-3 space-y-2">
-                        {purchase.items.map((item, idx) => (
-                          <div key={idx} className="flex items-center justify-between text-sm border-b border-gray-100 pb-2 last:border-0">
-                            <div className="flex-1">
-                              <p className="font-medium">{item.name}</p>
-                              <p className="text-xs text-gray-500">
-                                {item.quantity} × {item.unitPrice.toFixed(2)} ريال
+                        {purchase.items.map((item, idx) => {
+                          const hasMissingPrice = item.unitPrice === 0 || item.lineTotal === 0;
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex items-center justify-between text-sm border-b border-gray-100 pb-2 last:border-0 ${
+                                hasMissingPrice ? "bg-red-50 p-2 rounded border border-red-200" : ""
+                              }`}
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium">{item.name}</p>
+                                  {hasMissingPrice && (
+                                    <span className="text-xs bg-red-200 text-red-700 px-2 py-0.5 rounded">
+                                      ⚠️ بدون سعر
+                                    </span>
+                                  )}
+                                </div>
+                                <p className={`text-xs ${hasMissingPrice ? "text-red-600" : "text-gray-500"}`}>
+                                  {item.quantity} × {item.unitPrice.toFixed(2)} ريال
+                                </p>
+                              </div>
+                              <p className={`font-semibold ${hasMissingPrice ? "text-red-600" : "text-green-600"}`}>
+                                {item.lineTotal.toFixed(2)} ريال
                               </p>
                             </div>
-                            <p className="font-semibold text-green-600">{item.lineTotal.toFixed(2)} ريال</p>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
