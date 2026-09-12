@@ -82,31 +82,49 @@ export default function WifeDashboard() {
       setPendingRequests(pendingByDate);
       setStats((s) => ({ ...s, pending: requests.filter((r: PurchaseRequest) => r.status === "pending").length }));
 
-      // تنظيم المشتريات بالتاريخ
+      // تنظيم المشتريات (من الطلبات المشتراة والفواتير)
+      const purchasedData: Record<string, PurchaseByDate> = {};
+
+      // 1. إضافة الطلبات التي تم شراؤها
+      requests
+        .filter((r: PurchaseRequest) => r.status === "purchased")
+        .forEach((r: PurchaseRequest) => {
+          const date = String(r.requested_at).slice(0, 10);
+          const key = date;
+          if (!purchasedData[key]) {
+            purchasedData[key] = {
+              date,
+              storeName: "طلب مشترى",
+              totalAmount: 0,
+              itemCount: 0,
+            };
+          }
+          purchasedData[key].itemCount += 1;
+        });
+
+      // 2. إضافة المشتريات من الفواتير
       const purchases = purchasesRes.purchases ?? [];
-      const housePurchases: Record<string, any> = {};
       purchases.forEach((p: any) => {
         const date = p.created_at.slice(0, 10);
         const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id);
         if (items.length > 0) {
-          if (!housePurchases[date]) housePurchases[date] = [];
-          housePurchases[date].push({
-            storeName: p.store_name || "متجر",
-            totalAmount: items.reduce((s: number, l: any) => s + Number(l.line_total || 0), 0),
-            itemCount: items.length,
-          });
+          const key = date;
+          if (!purchasedData[key]) {
+            purchasedData[key] = {
+              date,
+              storeName: p.store_name || "متجر",
+              totalAmount: 0,
+              itemCount: 0,
+            };
+          }
+          purchasedData[key].totalAmount += items.reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
+          purchasedData[key].itemCount += items.length;
         }
       });
 
-      const purchasedByDate: PurchaseByDate[] = Object.entries(housePurchases)
-        .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
-        .slice(0, 20)
-        .map(([date, stores]) => ({
-          date,
-          storeName: stores.map((s: any) => s.storeName).join(" + "),
-          totalAmount: stores.reduce((s: number, st: any) => s + st.totalAmount, 0),
-          itemCount: stores.reduce((s: number, st: any) => s + st.itemCount, 0),
-        }));
+      const purchasedByDate: PurchaseByDate[] = Object.values(purchasedData)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 20);
 
       setPurchasedRequests(purchasedByDate);
       setStats((s) => ({ ...s, purchased: purchasedByDate.length, totalSpent: purchasedByDate.reduce((s, p) => s + p.totalAmount, 0) }));
