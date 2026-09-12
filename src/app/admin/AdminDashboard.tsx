@@ -1,18 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PendingRequestsTab from "./PendingRequestsTab";
 import RequestHistoryTab from "./RequestHistoryTab";
 import NewInvoiceTab from "./NewInvoiceTab";
 import ReportsTab from "./ReportsTab";
+import DailyOrdersTab from "./DailyOrdersTab";
 import UsersTab from "./UsersTab";
 import WarehouseManager from "@/components/WarehouseManager";
+import type { House } from "@/lib/types";
 
 const TABS = [
   { id: "pending", label: "الطلبات المعلّقة" },
   { id: "history", label: "سجل الطلبات" },
   { id: "invoice", label: "فاتورة جديدة" },
   { id: "warehouse", label: "المخزون" },
+  { id: "daily", label: "الطلبيات" },
   { id: "reports", label: "التقارير" },
   { id: "users", label: "المستخدمون" },
 ] as const;
@@ -21,6 +24,13 @@ type TabId = (typeof TABS)[number]["id"];
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<TabId>("pending");
+  const [houses, setHouses] = useState<House[]>([]);
+
+  useEffect(() => {
+    fetch("/api/houses")
+      .then((r) => r.json())
+      .then((d) => setHouses(d.houses ?? []));
+  }, []);
 
   return (
     <div className="px-4 -mt-6 max-w-2xl mx-auto">
@@ -42,6 +52,7 @@ export default function AdminDashboard() {
       {tab === "history" && <RequestHistoryTab />}
       {tab === "invoice" && <NewInvoiceTab />}
       {tab === "warehouse" && <WarehouseManager />}
+      {tab === "daily" && <DailyOrdersTab houses={houses} />}
       {tab === "reports" && <ReportsTab />}
       {tab === "users" && <UsersTab />}
     </div>

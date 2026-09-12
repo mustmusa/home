@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback } from "react";
 import StatusBadge from "@/components/StatusBadge";
 import HouseReport from "./HouseReport";
+import DailyOrdersReport from "./DailyOrdersReport";
 import type { PurchaseRequest } from "@/lib/types";
 
 export default function WifeDashboard() {
-  const [tab, setTab] = useState<"requests" | "report">("requests");
+  const [tab, setTab] = useState<"requests" | "report" | "daily">("requests");
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,18 +72,26 @@ export default function WifeDashboard() {
 
   return (
     <div className="px-4 -mt-6 flex flex-col gap-4 max-w-lg mx-auto">
-      <nav className="card !p-2 flex gap-1">
+      <nav className="card !p-2 flex gap-1 overflow-x-auto">
         <button
           onClick={() => setTab("requests")}
-          className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold ${
+          className={`shrink-0 px-3 py-2 rounded-lg text-sm font-semibold ${
             tab === "requests" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-100"
           }`}
         >
           الطلبات
         </button>
         <button
+          onClick={() => setTab("daily")}
+          className={`shrink-0 px-3 py-2 rounded-lg text-sm font-semibold ${
+            tab === "daily" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-100"
+          }`}
+        >
+          الطلبيات
+        </button>
+        <button
           onClick={() => setTab("report")}
-          className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold ${
+          className={`shrink-0 px-3 py-2 rounded-lg text-sm font-semibold ${
             tab === "report" ? "bg-primary text-white" : "text-gray-500 hover:bg-gray-100"
           }`}
         >
@@ -91,6 +100,7 @@ export default function WifeDashboard() {
       </nav>
 
       {tab === "report" && <HouseReport />}
+      {tab === "daily" && <DailyOrdersReport />}
 
       {tab === "requests" && (
         <>
