@@ -185,6 +185,7 @@ export default function WarehouseManager() {
     const minLevel = minStockLevels[it.id] ?? 20;
     return it.quantity > 0 && it.quantity < minLevel;
   });
+  const outOfStockItems = items.filter((it) => it.quantity === 0 || it.quantity < 0).length;
 
   const filteredItems = items.filter((it) => {
     const matchesSearch = it.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -220,7 +221,7 @@ export default function WarehouseManager() {
         {/* إحصائيات سريعة */}
         <section className="card">
           <h2 className="font-bold mb-3">📊 ملخص المخزن</h2>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-2">
             <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-xs text-gray-600">إجمالي العناصر</p>
               <p className="text-2xl font-bold text-blue-600">{totalItems}</p>
@@ -232,6 +233,10 @@ export default function WarehouseManager() {
             <div className="text-center p-3 bg-red-50 rounded-lg border border-red-200">
               <p className="text-xs text-gray-600">عناصر منخفضة</p>
               <p className="text-2xl font-bold text-red-600">{lowStockItems.length}</p>
+            </div>
+            <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200">
+              <p className="text-xs text-gray-600">عناصر نفذت</p>
+              <p className="text-2xl font-bold text-orange-600">{outOfStockItems}</p>
             </div>
             <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
               <p className="text-xs text-gray-600">الأصناف</p>
