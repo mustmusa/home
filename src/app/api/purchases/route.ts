@@ -181,3 +181,41 @@ export async function PATCH(req: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(req: NextRequest) {
+  const session = await getSession();
+  if (!session || session.role !== "admin") {
+    return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const purchaseId = searchParams.get("id");
+
+  if (!purchaseId) {
+    return NextResponse.json({ error: "معرّف الفاتورة مفقود" }, { status: 400 });
+  }
+
+  const db = supabaseServer();
+
+  // حذف جميع أسطر الفاتورة أولاً (من خلال الحذف المتسلسل)
+  const { error: linesErr } = await db
+    .from("purchase_lines")
+    .delete()
+    .eq("purchase_id", purchaseId);
+
+  if (linesErr) {
+    return NextResponse.json({ error: "فشل حذف أسطر الفاتورة: " + linesErr.message }, { status: 500 });
+  }
+
+  // حذف الفاتورة نفسها
+  const { error: purchaseErr } = await db
+    .from("purchases")
+    .delete()
+    .eq("id", purchaseId);
+
+  if (purchaseErr) {
+    return NextResponse.json({ error: "فشل حذف الفاتورة: " + purchaseErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

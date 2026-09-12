@@ -34,6 +34,7 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
   const [editingLine, setEditingLine] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [editForm, setEditForm] = useState<Partial<LineData>>({});
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     load();
@@ -108,6 +109,31 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
       setError(e instanceof Error ? e.message : "خطأ في التعديل");
     } finally {
       setUpdating(false);
+    }
+  }
+
+  async function deletePurchase(purchaseId: string) {
+    if (!confirm("⚠️ هل أنت متأكد من حذف هذه الفاتورة؟\nسيتم حذف الفاتورة وجميع عناصرها بشكل نهائي.")) {
+      return;
+    }
+
+    setDeleting(purchaseId);
+    try {
+      const res = await fetch(`/api/purchases?id=${purchaseId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
+      }
+
+      setError(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "خطأ في الحذف");
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -343,9 +369,18 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
                         )}
                       </div>
                     ))}
-                    <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between font-semibold text-sm">
-                      <span>الإجمالي:</span>
-                      <span>{purchase.total_amount.toFixed(2)}</span>
+                    <div className="border-t border-gray-200 pt-3 mt-3 space-y-2">
+                      <div className="flex justify-between font-semibold text-sm">
+                        <span>الإجمالي:</span>
+                        <span>{purchase.total_amount.toFixed(2)}</span>
+                      </div>
+                      <button
+                        onClick={() => deletePurchase(purchase.id)}
+                        disabled={deleting === purchase.id}
+                        className="w-full text-xs text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded border border-red-200"
+                      >
+                        {deleting === purchase.id ? "جارٍ الحذف..." : "🗑️ حذف الفاتورة"}
+                      </button>
                     </div>
                   </div>
                 )}
