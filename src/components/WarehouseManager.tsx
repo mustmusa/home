@@ -187,17 +187,6 @@ export default function WarehouseManager() {
   });
   const outOfStockItems = items.filter((it) => it.quantity === 0 || it.quantity < 0).length;
 
-  useEffect(() => {
-    console.log("🔍 WarehouseManager Debug:", {
-      itemsCount: items.length,
-      totalItems,
-      lowStockItems: lowStockItems.length,
-      outOfStockItems,
-      tab,
-      itemsData: items.slice(0, 3).map(it => ({ name: it.name, qty: it.quantity }))
-    });
-  }, [items, tab]);
-
   const filteredItems = items.filter((it) => {
     const matchesSearch = it.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !filterCategory || it.category === filterCategory;
@@ -229,11 +218,6 @@ export default function WarehouseManager() {
 
       {tab === "items" && (
         <>
-        {/* DEBUG */}
-        <div style={{ fontSize: "10px", color: "red", marginBottom: "10px" }}>
-          DEBUG: total={items.length}, outOfStock={outOfStockItems}, lowStock={lowStockItems.length}
-        </div>
-
         {/* إحصائيات سريعة */}
         <section className="card">
           <h2 className="font-bold mb-3">📊 ملخص المخزن</h2>
