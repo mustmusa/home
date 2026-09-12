@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     .order("batch_number", { ascending: true });
 
   if (batchesErr || !batches || batches.length === 0) {
-    return NextResponse.json({ error: "لم تجد أي بيانات للفاتورة" }, { status: 404 });
+    return NextResponse.json({ error: "لم تجد أي بيانات للفاتورة — قد تكون تمت معالجتها بالفعل" }, { status: 404 });
   }
 
   // اجمع جميع السطور من جميع الدفعات

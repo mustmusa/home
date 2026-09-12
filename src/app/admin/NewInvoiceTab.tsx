@@ -87,6 +87,7 @@ export default function NewInvoiceTab() {
   const [uploadedBatches, setUploadedBatches] = useState<number>(0);
   const [totalExtractedLines, setTotalExtractedLines] = useState<number>(0);
   const [storeName, setStoreName] = useState<string>("متجر");
+  const [finalizingInProgress, setFinalizingInProgress] = useState(false);
 
   // الصور المتجمّعة قبل الإرسال (تصوير مباشر متكرر و/أو اختيار من المعرض معًا)
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -274,10 +275,16 @@ export default function NewInvoiceTab() {
       return;
     }
 
+    if (finalizingInProgress) {
+      setError("جارٍ معالجة الفاتورة بالفعل — يرجى الانتظار");
+      return;
+    }
+
     setError(null);
     setSuccess(null);
     setProcessingStatus("جارٍ معالجة الفاتورة الكاملة...");
     setParsing(true);
+    setFinalizingInProgress(true);
     setStep("processing");
 
     try {
@@ -340,6 +347,7 @@ export default function NewInvoiceTab() {
       setProcessingStatus("");
     } finally {
       setParsing(false);
+      setFinalizingInProgress(false);
     }
   }
 
@@ -480,8 +488,8 @@ export default function NewInvoiceTab() {
           )}
 
           {uploadedBatches > 0 && (
-            <button className="btn-primary w-full mt-2" onClick={finalizeInvoice} disabled={parsing || pendingFiles.length > 0}>
-              {parsing ? "جارٍ المعالجة..." : "✅ انتهيت من الصور - معالجة الفاتورة"}
+            <button className="btn-primary w-full mt-2" onClick={finalizeInvoice} disabled={parsing || pendingFiles.length > 0 || finalizingInProgress}>
+              {finalizingInProgress || parsing ? "جارٍ المعالجة..." : "✅ انتهيت من الصور - معالجة الفاتورة"}
             </button>
           )}
 
