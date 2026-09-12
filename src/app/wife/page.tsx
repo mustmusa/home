@@ -94,15 +94,28 @@ export default function WifeDashboard() {
       // تنظيم المشتريات (من الطلبات المشتراة والفواتير)
       const purchasedData: Record<string, PurchaseByDate> = {};
 
-      // 1. بناء خريطة من matched_request_id إلى تفاصيل السطر (للحصول على الأسعار من الفواتير)
+      // 1. بناء خريطة من matched_request_id وأسماء العناصر إلى تفاصيل السطر
       const requestPriceMap: Record<string, { storeName: string; quantity: number; unitPrice: number; lineTotal: number; date: string }> = {};
       const purchases = purchasesRes.purchases ?? [];
       purchases.forEach((p: any) => {
         const date = p.created_at.slice(0, 10);
-        const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id && l.matched_request_id);
+        const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id);
         items.forEach((item: any) => {
+          // ربط بـ matched_request_id إذا كان موجوداً
           if (item.matched_request_id) {
             requestPriceMap[item.matched_request_id] = {
+              storeName: p.store_name || "متجر",
+              quantity: Number(item.quantity || 1),
+              unitPrice: item.quantity ? Number(item.line_total) / Number(item.quantity) : 0,
+              lineTotal: Number(item.line_total || 0),
+              date,
+            };
+          }
+
+          // ربط بـ item_name أيضاً (للبيانات القديمة بدون matched_request_id)
+          const itemNameKey = `${item.item_name?.toLowerCase().trim()}`;
+          if (!requestPriceMap[itemNameKey]) {
+            requestPriceMap[itemNameKey] = {
               storeName: p.store_name || "متجر",
               quantity: Number(item.quantity || 1),
               unitPrice: item.quantity ? Number(item.line_total) / Number(item.quantity) : 0,
@@ -117,7 +130,12 @@ export default function WifeDashboard() {
       requests
         .filter((r: PurchaseRequest) => r.status === "purchased")
         .forEach((r: PurchaseRequest) => {
-          const priceInfo = requestPriceMap[r.id];
+          // جرّب البحث بـ ID أولاً، ثم بـ item_name
+          let priceInfo = requestPriceMap[r.id];
+          if (!priceInfo && r.item_name) {
+            priceInfo = requestPriceMap[r.item_name.toLowerCase().trim()];
+          }
+
           const date = priceInfo ? priceInfo.date : String(r.requested_at).slice(0, 10);
           const key = `${date}-${r.id}`;
           if (!purchasedData[key]) {
