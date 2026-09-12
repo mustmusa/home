@@ -91,76 +91,16 @@ export default function WifeDashboard() {
       setPendingRequests(pendingByDate);
       setStats((s) => ({ ...s, pending: requests.filter((r: PurchaseRequest) => r.status === "pending").length }));
 
-      // تنظيم المشتريات (من الطلبات المشتراة والفواتير)
+      // تنظيم المشتريات (من الفواتير فقط - الطلبات المشتراة تُعرض ضمن الفواتير إن وجدت)
       const purchasedData: Record<string, PurchaseByDate> = {};
 
-      // 1. بناء خريطة من matched_request_id وأسماء العناصر إلى تفاصيل السطر
-      const requestPriceMap: Record<string, { storeName: string; quantity: number; unitPrice: number; lineTotal: number; date: string }> = {};
+      // 1. إضافة جميع الفواتير والعناصر المشتراة
       const purchases = purchasesRes.purchases ?? [];
       purchases.forEach((p: any) => {
         const date = p.created_at.slice(0, 10);
         const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id);
-        items.forEach((item: any) => {
-          // ربط بـ matched_request_id إذا كان موجوداً
-          if (item.matched_request_id) {
-            requestPriceMap[item.matched_request_id] = {
-              storeName: p.store_name || "متجر",
-              quantity: Number(item.quantity || 1),
-              unitPrice: item.quantity ? Number(item.line_total) / Number(item.quantity) : 0,
-              lineTotal: Number(item.line_total || 0),
-              date,
-            };
-          }
-
-          // ربط بـ item_name أيضاً (للبيانات القديمة بدون matched_request_id)
-          const itemNameKey = `${item.item_name?.toLowerCase().trim()}`;
-          if (!requestPriceMap[itemNameKey]) {
-            requestPriceMap[itemNameKey] = {
-              storeName: p.store_name || "متجر",
-              quantity: Number(item.quantity || 1),
-              unitPrice: item.quantity ? Number(item.line_total) / Number(item.quantity) : 0,
-              lineTotal: Number(item.line_total || 0),
-              date,
-            };
-          }
-        });
-      });
-
-      // 2. إضافة الطلبات التي تم شراؤها (مع الأسعار من الفواتير إن وجدت)
-      requests
-        .filter((r: PurchaseRequest) => r.status === "purchased")
-        .forEach((r: PurchaseRequest) => {
-          // جرّب البحث بـ ID أولاً، ثم بـ item_name
-          let priceInfo = requestPriceMap[r.id];
-          if (!priceInfo && r.item_name) {
-            priceInfo = requestPriceMap[r.item_name.toLowerCase().trim()];
-          }
-
-          const date = priceInfo ? priceInfo.date : String(r.requested_at).slice(0, 10);
-          const key = `${date}-${r.id}`;
-          if (!purchasedData[key]) {
-            purchasedData[key] = {
-              date,
-              storeName: priceInfo?.storeName || "🎯 طلب مشترى",
-              totalAmount: priceInfo?.lineTotal || 0,
-              itemCount: 1,
-              items: [],
-            };
-          }
-          purchasedData[key].items.push({
-            name: r.item_name || "عنصر",
-            quantity: priceInfo?.quantity || 1,
-            unitPrice: priceInfo?.unitPrice || 0,
-            lineTotal: priceInfo?.lineTotal || 0,
-          });
-        });
-
-      // 3. إضافة المشتريات من الفواتير التي لم تُربط بطلبات
-      purchases.forEach((p: any) => {
-        const date = p.created_at.slice(0, 10);
-        const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id && !l.matched_request_id);
         if (items.length > 0) {
-          const key = `${date}-invoice-${p.id}`;
+          const key = `${date}-${p.id}`;
           if (!purchasedData[key]) {
             purchasedData[key] = {
               date,
@@ -170,16 +110,19 @@ export default function WifeDashboard() {
               items: [],
             };
           }
-          const totalLineAmount = items.reduce((s: number, l: any) => s + Number(l.line_total || 0), 0);
-          purchasedData[key].totalAmount += totalLineAmount;
-          purchasedData[key].itemCount += items.length;
           items.forEach((item: any) => {
+            const lineTotal = Number(item.line_total || 0);
+            const quantity = Number(item.quantity || 1);
+            const unitPrice = quantity > 0 ? lineTotal / quantity : 0;
+
             purchasedData[key].items.push({
               name: item.item_name || "عنصر",
-              quantity: Number(item.quantity || 1),
-              unitPrice: item.quantity ? Number(item.line_total) / Number(item.quantity) : 0,
-              lineTotal: Number(item.line_total || 0),
+              quantity,
+              unitPrice,
+              lineTotal,
             });
+            purchasedData[key].totalAmount += lineTotal;
+            purchasedData[key].itemCount += 1;
           });
         }
       });
