@@ -145,3 +145,39 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, purchase });
 }
+
+export async function PATCH(req: NextRequest) {
+  const session = await getSession();
+  if (!session || session.role !== "admin") {
+    return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+  }
+
+  const body = await req.json();
+  const { lineId, item_name, quantity, unit_price, line_total, category, destination, house_id } = body;
+
+  if (!lineId) {
+    return NextResponse.json({ error: "معرّف السطر مفقود" }, { status: 400 });
+  }
+
+  const db = supabaseServer();
+
+  const updateData: any = {};
+  if (item_name !== undefined) updateData.item_name = item_name;
+  if (quantity !== undefined) updateData.quantity = quantity;
+  if (unit_price !== undefined) updateData.unit_price = unit_price;
+  if (line_total !== undefined) updateData.line_total = line_total;
+  if (category !== undefined) updateData.category = category;
+  if (destination !== undefined) updateData.destination = destination;
+  if (house_id !== undefined) updateData.house_id = house_id;
+
+  const { error } = await db
+    .from("purchase_lines")
+    .update(updateData)
+    .eq("id", lineId);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

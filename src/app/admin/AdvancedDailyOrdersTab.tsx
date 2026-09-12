@@ -1,7 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CATEGORIES } from "@/lib/types";
 import type { House } from "@/lib/types";
+
+type LineData = {
+  id: string;
+  item_name: string;
+  quantity: number | null;
+  unit_price: number | null;
+  line_total: number;
+  destination: "house" | "warehouse";
+  house_id: string | null;
+  house_name?: string;
+  category: string | null;
+};
 
 type PurchaseWithLines = {
   id: string;
@@ -9,25 +22,18 @@ type PurchaseWithLines = {
   created_at: string;
   total_amount: number;
   total_with_tax: number;
-  lines: {
-    id: string;
-    item_name: string;
-    quantity: number | null;
-    unit_price: number | null;
-    line_total: number;
-    destination: "house" | "warehouse";
-    house_id: string | null;
-    house_name?: string;
-    category: string | null;
-  }[];
+  lines: LineData[];
 };
 
 export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[] }) {
   const [purchases, setPurchases] = useState<PurchaseWithLines[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "warehouse" | string>("all"); // "all", "warehouse", or house id
+  const [filter, setFilter] = useState<"all" | "warehouse" | string>("all");
   const [expandedPurchase, setExpandedPurchase] = useState<string | null>(null);
+  const [editingLine, setEditingLine] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<LineData>>({});
 
   useEffect(() => {
     load();
@@ -46,7 +52,6 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
         (p: any) => p.created_at.slice(0, 10) === today
       );
 
-      // تنسيق البيانات
       const formatted = todayPurchases.map((p: any) => ({
         id: p.id,
         store_name: p.store_name || "متجر",
@@ -73,24 +78,57 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
     }
   }
 
-  // تصفية الفواتير حسب الاختيار
-  const filteredPurchases = purchases.map((p) => {
-    if (filter === "all") {
-      return p;
-    } else if (filter === "warehouse") {
-      return {
-        ...p,
-        lines: p.lines.filter((l) => l.destination === "warehouse"),
-      };
-    } else {
-      return {
-        ...p,
-        lines: p.lines.filter((l) => l.destination === "house" && l.house_id === filter),
-      };
-    }
-  }).filter((p) => p.lines.length > 0);
+  function startEdit(line: LineData) {
+    setEditingLine(line.id);
+    setEditForm({ ...line });
+  }
 
-  // حساب الإجماليات حسب التصفية
+  async function saveEdit() {
+    if (!editingLine) return;
+
+    setUpdating(true);
+    try {
+      const res = await fetch("/api/purchases", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineId: editingLine,
+          ...editForm,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
+      }
+
+      setEditingLine(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "خطأ في التعديل");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  const filteredPurchases = purchases
+    .map((p) => {
+      if (filter === "all") {
+        return p;
+      } else if (filter === "warehouse") {
+        return {
+          ...p,
+          lines: p.lines.filter((l) => l.destination === "warehouse"),
+        };
+      } else {
+        return {
+          ...p,
+          lines: p.lines.filter((l) => l.destination === "house" && l.house_id === filter),
+        };
+      }
+    })
+    .filter((p) => p.lines.length > 0);
+
   const totalsData = filteredPurchases.reduce(
     (acc, p) => ({
       count: acc.count + p.lines.length,
@@ -108,7 +146,6 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
       <section className="card">
         <h2 className="font-bold mb-4">🛒 مشتريات اليوم</h2>
 
-        {/* التصفية */}
         <div className="mb-4">
           <label className="block text-sm font-semibold text-gray-600 mb-2">تصفية حسب:</label>
           <select
@@ -126,7 +163,6 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
           </select>
         </div>
 
-        {/* الإحصائيات */}
         <div className="grid grid-cols-2 gap-3 mb-4 pb-4 border-b border-gray-200">
           <div className="border border-gray-100 rounded-lg p-3 text-center">
             <p className="text-xs text-gray-500">العناصر</p>
@@ -141,7 +177,6 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
-      {/* قائمة الفواتير */}
       <section className="card">
         {filteredPurchases.length === 0 ? (
           <p className="text-gray-400 text-sm">لا توجد مشتريات</p>
@@ -149,7 +184,6 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
           <div className="space-y-3">
             {filteredPurchases.map((purchase) => (
               <div key={purchase.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                {/* رأس الفاتورة */}
                 <button
                   onClick={() =>
                     setExpandedPurchase(expandedPurchase === purchase.id ? null : purchase.id)
@@ -176,44 +210,143 @@ export default function AdvancedDailyOrdersTab({ houses = [] }: { houses: House[
                   </div>
                 </button>
 
-                {/* تفاصيل الفاتورة */}
                 {expandedPurchase === purchase.id && (
-                  <div className="bg-gray-50 border-t border-gray-200 p-3 space-y-2">
+                  <div className="bg-gray-50 border-t border-gray-200 p-3 space-y-3">
                     {purchase.lines.map((line) => (
-                      <div key={line.id} className="flex justify-between items-start text-xs">
-                        <div className="flex-1">
-                          <p className="font-medium">{line.item_name}</p>
-                          <p className="text-gray-500">
-                            {line.quantity} × {line.unit_price} ريال
-                          </p>
-                          {line.category && (
-                            <p className="text-gray-400">📁 {line.category}</p>
-                          )}
-                        </div>
-                        <div className="text-right ml-2 shrink-0">
-                          <p className="font-semibold">{line.line_total.toFixed(2)}</p>
-                          <span
-                            className={`text-xs px-2 py-1 rounded mt-1 inline-block ${
-                              line.destination === "warehouse"
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-blue-100 text-blue-700"
-                            }`}
-                          >
-                            {line.destination === "warehouse" ? "📦" : "🏠"}
-                          </span>
-                        </div>
+                      <div key={line.id} className="border border-gray-100 rounded-lg bg-white p-3">
+                        {editingLine === line.id ? (
+                          // نموذج التعديل
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              className="input"
+                              value={editForm.item_name || ""}
+                              onChange={(e) => setEditForm({ ...editForm, item_name: e.target.value })}
+                              placeholder="اسم العنصر"
+                            />
+                            <div className="grid grid-cols-3 gap-2">
+                              <input
+                                type="number"
+                                step="any"
+                                className="input"
+                                value={editForm.quantity || ""}
+                                onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value ? Number(e.target.value) : null })}
+                                placeholder="الكمية"
+                              />
+                              <input
+                                type="number"
+                                step="any"
+                                className="input"
+                                value={editForm.unit_price || ""}
+                                onChange={(e) => setEditForm({ ...editForm, unit_price: e.target.value ? Number(e.target.value) : null })}
+                                placeholder="السعر"
+                              />
+                              <input
+                                type="number"
+                                step="any"
+                                className="input"
+                                value={editForm.line_total || ""}
+                                onChange={(e) => setEditForm({ ...editForm, line_total: Number(e.target.value) })}
+                                placeholder="الإجمالي"
+                              />
+                            </div>
+                            <select
+                              className="input"
+                              value={editForm.category || ""}
+                              onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                            >
+                              {CATEGORIES.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                              <select
+                                className="input"
+                                value={editForm.destination || ""}
+                                onChange={(e) => {
+                                  setEditForm({
+                                    ...editForm,
+                                    destination: e.target.value as "house" | "warehouse",
+                                    house_id: e.target.value === "warehouse" ? null : editForm.house_id,
+                                  });
+                                }}
+                              >
+                                <option value="warehouse">📦 المخزن</option>
+                                <option value="house">🏠 البيت</option>
+                              </select>
+                              {editForm.destination === "house" && (
+                                <select
+                                  className="input"
+                                  value={editForm.house_id || ""}
+                                  onChange={(e) => setEditForm({ ...editForm, house_id: e.target.value })}
+                                >
+                                  <option value="">اختر البيت</option>
+                                  {houses.map((h) => (
+                                    <option key={h.id} value={h.id}>
+                                      {h.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={saveEdit}
+                                disabled={updating}
+                                className="btn-primary flex-1 text-xs"
+                              >
+                                {updating ? "جارٍ الحفظ..." : "✓ حفظ"}
+                              </button>
+                              <button
+                                onClick={() => setEditingLine(null)}
+                                className="btn-secondary flex-1 text-xs"
+                              >
+                                ✕ إلغاء
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          // عرض العنصر
+                          <div>
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{line.item_name}</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {line.quantity} × {line.unit_price} ريال
+                                </p>
+                                {line.category && (
+                                  <p className="text-xs text-gray-400">📁 {line.category}</p>
+                                )}
+                              </div>
+                              <div className="text-right ml-2 shrink-0">
+                                <p className="font-semibold text-sm">{line.line_total.toFixed(2)}</p>
+                                <span
+                                  className={`text-xs px-2 py-1 rounded mt-1 inline-block ${
+                                    line.destination === "warehouse"
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-blue-100 text-blue-700"
+                                  }`}
+                                >
+                                  {line.destination === "warehouse" ? "📦" : "🏠"}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => startEdit(line)}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              ✏️ تعديل
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                     <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between font-semibold text-sm">
                       <span>الإجمالي:</span>
                       <span>{purchase.total_amount.toFixed(2)}</span>
                     </div>
-                    {purchase.total_with_tax > 0 && (
-                      <div className="flex justify-between text-xs text-gray-600">
-                        <span>مع الضريبة:</span>
-                        <span>{purchase.total_with_tax.toFixed(2)}</span>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
