@@ -86,6 +86,7 @@ export default function NewInvoiceTab() {
   const [sessionId] = useState(() => crypto.randomUUID());
   const [uploadedBatches, setUploadedBatches] = useState<number>(0);
   const [totalExtractedLines, setTotalExtractedLines] = useState<number>(0);
+  const [storeName, setStoreName] = useState<string>("متجر");
 
   // الصور المتجمّعة قبل الإرسال (تصوير مباشر متكرر و/أو اختيار من المعرض معًا)
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -283,7 +284,7 @@ export default function NewInvoiceTab() {
       const res = await fetch("/api/purchases/finalize-invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
+        body: JSON.stringify({ sessionId, storeName }),
       });
 
       const data = await res.json();
@@ -367,7 +368,7 @@ export default function NewInvoiceTab() {
       const res = await fetch("/api/purchases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagePaths, lines: payload }),
+        body: JSON.stringify({ imagePaths, lines: payload, storeName }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -411,6 +412,17 @@ export default function NewInvoiceTab() {
             صوّر الصور دفعة تلو الأخرى (كل دفعة 2-3 صور)، ثم اضغط "رفع الدفعة". كمّل حتى تنتهي من الفاتورة كاملة،
             ثم اضغط "انتهيت من الصور" ليقوم النظام بمعالجة الفاتورة والتحقق من البيانات.
           </p>
+
+          <div className="mb-3">
+            <label className="block text-sm text-gray-600 mb-2">📍 اسم المكان التجاري</label>
+            <input
+              type="text"
+              className="input"
+              value={storeName}
+              onChange={(e) => setStoreName(e.target.value)}
+              placeholder="مثال: بقالة النور، سوبر ماركت..."
+            />
+          </div>
 
           {uploadedBatches > 0 && (
             <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">

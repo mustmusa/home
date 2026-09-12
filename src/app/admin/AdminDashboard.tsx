@@ -5,7 +5,7 @@ import PendingRequestsTab from "./PendingRequestsTab";
 import RequestHistoryTab from "./RequestHistoryTab";
 import NewInvoiceTab from "./NewInvoiceTab";
 import ReportsTab from "./ReportsTab";
-import DailyOrdersTab from "./DailyOrdersTab";
+import AdvancedDailyOrdersTab from "./AdvancedDailyOrdersTab";
 import UsersTab from "./UsersTab";
 import WarehouseManager from "@/components/WarehouseManager";
 import type { House } from "@/lib/types";
@@ -52,7 +52,7 @@ export default function AdminDashboard() {
       {tab === "history" && <RequestHistoryTab />}
       {tab === "invoice" && <NewInvoiceTab />}
       {tab === "warehouse" && <WarehouseManager />}
-      {tab === "daily" && <DailyOrdersTab houses={houses} />}
+      {tab === "daily" && <AdvancedDailyOrdersTab houses={houses} />}
       {tab === "reports" && <ReportsTab />}
       {tab === "users" && <UsersTab />}
     </div>

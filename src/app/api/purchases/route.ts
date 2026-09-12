@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const imagePaths: string[] = Array.isArray(body.imagePaths) ? body.imagePaths.map(String) : [];
+  const storeName: string = body.storeName || "متجر";
   const lines = body.lines as IncomingLine[];
 
   if (!Array.isArray(lines) || lines.length === 0) {
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
       purchased_by: session.uid,
       total_amount: totalAmount,
       warehouse_total: warehouseTotal,
+      store_name: storeName,
     })
     .select()
     .single();

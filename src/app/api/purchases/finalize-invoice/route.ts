@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 
-  const { sessionId } = await req.json();
+  const { sessionId, storeName } = await req.json();
   if (!sessionId) {
     return NextResponse.json({ error: "معرّف الجلسة مفقود" }, { status: 400 });
   }
@@ -212,6 +212,7 @@ ${itemsList}
       total_amount: total,
       total_with_tax: totalWithTax,
       invoice_image_paths: allImagePaths,
+      store_name: storeName || "متجر",
     })
     .select("id")
     .single();
