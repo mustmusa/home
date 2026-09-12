@@ -94,10 +94,10 @@ export async function GET(req: NextRequest) {
     month,
     year,
     houseTotals,
+    warehouseTotal: warehousePurchasesThisMonth,
     warehouse: {
       items: warehouseItems,
       totalValue: warehouseValue,
-      purchasesThisMonth: warehousePurchasesThisMonth,
     },
     itemCosts: items,
   });

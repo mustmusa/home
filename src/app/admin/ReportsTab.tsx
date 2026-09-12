@@ -6,10 +6,10 @@ type ReportData = {
   month: string;
   year: number;
   houseTotals: { house_id: string; name: string; total: number; count: number }[];
+  warehouseTotal: number;
   warehouse: {
     items: { id: string; name: string; quantity: number; unit: string | null; unit_cost: number | null }[];
     totalValue: number;
-    purchasesThisMonth: number;
   };
   itemCosts: { item_name: string; monthTotal: number; yearTotal: number }[];
 };
@@ -56,8 +56,32 @@ export default function ReportsTab() {
         <p className="text-gray-400 text-sm">جارٍ التحميل...</p>
       ) : (
         <>
+          {/* Summary Card */}
           <section className="card">
-            <h3 className="font-bold mb-3">مصاريف البيوت هذا الشهر</h3>
+            <h3 className="font-bold mb-4">📊 ملخص المصاريف</h3>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="border border-blue-200 rounded-lg p-3 text-center bg-blue-50">
+                <p className="text-sm text-gray-600">مصاريف البيوت</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {data.houseTotals.reduce((sum, h) => sum + h.total, 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="border border-orange-200 rounded-lg p-3 text-center bg-orange-50">
+                <p className="text-sm text-gray-600">مصاريف المخزن</p>
+                <p className="text-2xl font-bold text-orange-600">{data.warehouseTotal.toFixed(2)}</p>
+              </div>
+            </div>
+            <div className="border border-green-200 rounded-lg p-3 text-center bg-green-50">
+              <p className="text-sm text-gray-600">الإجمالي الكلي</p>
+              <p className="text-3xl font-bold text-green-600">
+                {(data.houseTotals.reduce((sum, h) => sum + h.total, 0) + data.warehouseTotal).toFixed(2)}
+              </p>
+            </div>
+          </section>
+
+          {/* House Expenses */}
+          <section className="card">
+            <h3 className="font-bold mb-3">🏠 مصاريف البيوت</h3>
             <div className="grid grid-cols-2 gap-3">
               {data.houseTotals.map((h) => (
                 <div key={h.house_id} className="border border-gray-100 rounded-lg p-3 text-center">
@@ -69,16 +93,13 @@ export default function ReportsTab() {
             </div>
           </section>
 
+          {/* Warehouse Inventory */}
           <section className="card">
-            <h3 className="font-bold mb-3">المخزن</h3>
-            <div className="grid grid-cols-2 gap-3 mb-3">
+            <h3 className="font-bold mb-3">📦 المخزن</h3>
+            <div className="grid grid-cols-1 gap-3 mb-3">
               <div className="border border-gray-100 rounded-lg p-3 text-center">
                 <p className="text-sm text-gray-500">قيمة المخزون الحالي</p>
                 <p className="text-xl font-bold text-warehouse">{data.warehouse.totalValue.toFixed(2)}</p>
-              </div>
-              <div className="border border-gray-100 rounded-lg p-3 text-center">
-                <p className="text-sm text-gray-500">مشتريات المخزن هذا الشهر</p>
-                <p className="text-xl font-bold text-warehouse">{data.warehouse.purchasesThisMonth.toFixed(2)}</p>
               </div>
             </div>
             <div className="overflow-x-auto">
