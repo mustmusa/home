@@ -46,7 +46,7 @@ export default function WifeDashboard() {
       ]);
 
       if (!meRes.user) {
-        router.push("/");
+        router.push("/login");
         return;
       }
 
