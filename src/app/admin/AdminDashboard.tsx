@@ -5,17 +5,19 @@ import PendingRequestsTab from "./PendingRequestsTab";
 import RequestHistoryTab from "./RequestHistoryTab";
 import NewInvoiceTab from "./NewInvoiceTab";
 import ReportsTab from "./ReportsTab";
-import AdvancedDailyOrdersTab from "./AdvancedDailyOrdersTab";
+import ActiveOrdersTab from "./ActiveOrdersTab";
+import PurchasedOrdersTab from "./PurchasedOrdersTab";
 import UsersTab from "./UsersTab";
 import WarehouseManager from "@/components/WarehouseManager";
 import type { House } from "@/lib/types";
 
 const TABS = [
   { id: "pending", label: "الطلبات المعلّقة" },
+  { id: "active-orders", label: "الطلبات النشطة" },
+  { id: "purchased-history", label: "سجل الطلبيات" },
   { id: "history", label: "سجل الطلبات" },
   { id: "invoice", label: "فاتورة جديدة" },
   { id: "warehouse", label: "المخزون" },
-  { id: "daily", label: "الطلبيات" },
   { id: "reports", label: "التقارير" },
   { id: "users", label: "المستخدمون" },
 ] as const;
@@ -49,10 +51,11 @@ export default function AdminDashboard() {
       </nav>
 
       {tab === "pending" && <PendingRequestsTab />}
+      {tab === "active-orders" && <ActiveOrdersTab />}
+      {tab === "purchased-history" && <PurchasedOrdersTab />}
       {tab === "history" && <RequestHistoryTab />}
       {tab === "invoice" && <NewInvoiceTab />}
       {tab === "warehouse" && <WarehouseManager />}
-      {tab === "daily" && <AdvancedDailyOrdersTab houses={houses} />}
       {tab === "reports" && <ReportsTab />}
       {tab === "users" && <UsersTab />}
     </div>
