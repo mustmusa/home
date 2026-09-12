@@ -3,17 +3,19 @@
 import { useEffect, useState, useCallback } from "react";
 import type { House, PurchaseRequest } from "@/lib/types";
 
-type PurchaseItem = {
+type PurchaseLineItem = {
   id: string;
+  item_name: string;
+  quantity: number;
+  line_total: number;
   store_name: string;
-  total_amount: number;
   created_at: string;
 };
 
 export default function PendingRequestsTab() {
   const [requests, setRequests] = useState<PurchaseRequest[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
-  const [purchases, setPurchases] = useState<PurchaseItem[]>([]);
+  const [purchaseLines, setPurchaseLines] = useState<PurchaseLineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [linkingRequestId, setLinkingRequestId] = useState<string | null>(null);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
@@ -31,7 +33,24 @@ export default function PendingRequestsTab() {
       ]);
       setRequests(reqRes.requests ?? []);
       setHouses(housesRes.houses ?? []);
-      setPurchases(purchasesRes.purchases ?? []);
+
+      // استخراج العناصر من الفواتير
+      const lines: PurchaseLineItem[] = [];
+      const purchases = purchasesRes.purchases ?? [];
+      purchases.forEach((p: any) => {
+        const purchaseLines = p.purchase_lines ?? [];
+        purchaseLines.forEach((line: any) => {
+          lines.push({
+            id: line.id,
+            item_name: line.item_name,
+            quantity: line.quantity,
+            line_total: line.line_total,
+            store_name: p.store_name,
+            created_at: p.created_at
+          });
+        });
+      });
+      setPurchaseLines(lines);
     } finally {
       setLoading(false);
     }
@@ -170,19 +189,28 @@ export default function PendingRequestsTab() {
                   <li key={r.id} className="border border-gray-100 rounded-lg p-3">
                     {linkingRequestId === r.id ? (
                       <div className="space-y-2">
-                        <p className="text-sm font-semibold mb-2">ربط مع شراء:</p>
+                        <p className="text-sm font-semibold mb-2">ربط مع عنصر تم شراؤه:</p>
                         <div className="space-y-1 max-h-48 overflow-y-auto">
-                          {purchases.map((p) => (
-                            <button
-                              key={p.id}
-                              onClick={() => linkToPurchase(r.id, p.id)}
-                              disabled={updating}
-                              className="w-full text-left text-xs p-2 rounded border border-blue-200 hover:bg-blue-50"
-                            >
-                              {p.store_name} • {p.total_amount.toFixed(2)} ريال •{" "}
-                              {new Date(p.created_at).toLocaleString("ar-SA")}
-                            </button>
-                          ))}
+                          {purchaseLines.length === 0 ? (
+                            <p className="text-gray-500 text-xs p-2">لا توجد عناصر مشتراة</p>
+                          ) : (
+                            purchaseLines.map((line) => (
+                              <button
+                                key={line.id}
+                                onClick={() => linkToPurchase(r.id, line.id)}
+                                disabled={updating}
+                                className="w-full text-left text-xs p-2 rounded border border-blue-200 hover:bg-blue-50"
+                              >
+                                <div className="font-semibold">{line.item_name}</div>
+                                <div className="text-gray-600">
+                                  {line.store_name} • الكمية: {line.quantity} • {line.line_total.toFixed(2)} ريال
+                                </div>
+                                <div className="text-gray-500">
+                                  {new Date(line.created_at).toLocaleString("ar-SA")}
+                                </div>
+                              </button>
+                            ))
+                          )}
                         </div>
                         <button
                           onClick={() => setLinkingRequestId(null)}
