@@ -205,6 +205,24 @@ ${itemsList}
     console.error(`فشل التحقق من البيانات المستخرجة`);
   }
 
+  // تحقق من الفواتير المكررة (نفس المجموع ± 10 ريال من نفس اليوم)
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: recentPurchases } = await db
+    .from("purchases")
+    .select("id, total_amount, created_at")
+    .gte("created_at", `${today}T00:00:00Z`)
+    .lte("created_at", `${today}T23:59:59Z`);
+
+  const potentialDuplicates = (recentPurchases || []).filter(
+    (p) => Math.abs(Number(p.total_amount) - total) < 10,
+  );
+
+  if (potentialDuplicates.length > 0) {
+    console.warn(
+      `⚠️ تحذير: قد تكون هناك فاتورة مشابهة من نفس اليوم (نفس المجموع ± 10 ريال)`,
+    );
+  }
+
   // احفظ الشراء الجديد
   const { data: purchaseData, error: purchaseErr } = await db
     .from("purchases")
@@ -257,6 +275,7 @@ ${itemsList}
     lines: dedupedLines,
     imagePaths: allImagePaths,
     pendingRequests: pendingForMatch,
+    potentialDuplicatesCount: potentialDuplicates.length,
     summary: {
       totalItems: itemCount,
       originalItems: allLines.length,

@@ -336,9 +336,11 @@ export default function NewInvoiceTab() {
       setLines(editable);
 
       setProcessingStatus("");
-      setSuccess(
-        `تم معالجة الفاتورة ✅\n• الدفعات: ${uploadedBatches}\n• العناصر المستخرجة: ${data.summary.originalItems}\n• المحذوف (تكرار): ${data.summary.removedDuplicates}\n• الأسطر النهائية: ${editable.length}`,
-      );
+      let successMsg = `تم معالجة الفاتورة ✅\n• الدفعات: ${uploadedBatches}\n• العناصر المستخرجة: ${data.summary.originalItems}\n• المحذوف (تكرار): ${data.summary.removedDuplicates}\n• الأسطر النهائية: ${editable.length}`;
+      if (data.potentialDuplicatesCount > 0) {
+        successMsg += `\n⚠️ تنبيه: وُجدت ${data.potentialDuplicatesCount} فاتورة مشابهة من نفس اليوم`;
+      }
+      setSuccess(successMsg);
       setStep("review");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "خطأ غير معروف";
