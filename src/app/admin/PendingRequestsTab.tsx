@@ -49,7 +49,8 @@ export default function PendingRequestsTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "purchased" }),
       });
-      if (!res.ok) throw new Error("فشل الربط");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "فشل الربط");
       setLinkingRequestId(null);
       load();
     } catch (e) {
@@ -74,7 +75,8 @@ export default function PendingRequestsTab() {
           quantity_text: itemName.trim()
         }),
       });
-      if (!res.ok) throw new Error("فشل التعديل");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "فشل التعديل");
       setEditingRequestId(null);
       load();
     } catch (e) {
@@ -93,7 +95,8 @@ export default function PendingRequestsTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "cancelled" }),
       });
-      if (!res.ok) throw new Error("فشل الإلغاء");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "فشل الإلغاء");
       load();
     } catch (e) {
       alert(e instanceof Error ? e.message : "حدث خطأ");
