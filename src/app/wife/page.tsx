@@ -43,6 +43,28 @@ export default function WifeDashboard() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [stats, setStats] = useState({ pending: 0, purchased: 0, totalSpent: 0 });
+  const [deletingAll, setDeletingAll] = useState(false);
+
+  async function deleteAllPurchases() {
+    if (!confirm("هل تريد حذف جميع المشتريات؟ هذا الإجراء لا يمكن التراجع عنه!")) {
+      return;
+    }
+    setDeletingAll(true);
+    try {
+      const res = await fetch("/api/purchases/delete-all", { method: "DELETE" });
+      if (res.ok) {
+        setSuccess("تم حذف جميع المشتريات بنجاح ✅");
+        load();
+      } else {
+        const data = await res.json();
+        setError(data.error ?? "حدث خطأ");
+      }
+    } catch (e) {
+      setError("خطأ في الاتصال");
+    } finally {
+      setDeletingAll(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -358,7 +380,18 @@ export default function WifeDashboard() {
 
       {tab === "purchases" && (
         <section className="card">
-          <h2 className="font-bold mb-3">✅ مشترياتك ({stats.purchased})</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold">✅ مشترياتك ({stats.purchased})</h2>
+            {purchasedRequests.length > 0 && (
+              <button
+                onClick={deleteAllPurchases}
+                disabled={deletingAll}
+                className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded hover:bg-red-200"
+              >
+                {deletingAll ? "جارٍ الحذف..." : "🗑️ حذف الكل"}
+              </button>
+            )}
+          </div>
           {purchasedRequests.length === 0 ? (
             <p className="text-gray-400 text-sm text-center">لم تُشترَ أي طلبات بعد</p>
           ) : (
