@@ -363,13 +363,28 @@ export default function NewInvoiceTab() {
 
   async function save() {
     setError(null);
+
+    // التحقق: كل عنصر يجب أن يكون له سعر
+    const itemsWithoutPrice = lines.filter((l) => {
+      const price = Number(l.line_total || 0);
+      const unitPrice = Number(l.unit_price || 0);
+      return price === 0 || unitPrice === 0;
+    });
+
+    if (itemsWithoutPrice.length > 0) {
+      setError(
+        `❌ ${itemsWithoutPrice.length} عنصر بدون سعر:\n${itemsWithoutPrice.map((l) => `• ${l.item_name}`).join("\n")}\n\nيجب إدخال السعر لكل عنصر قبل الحفظ`,
+      );
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = lines.map((l) => ({
         item_name: l.item_name,
-        quantity: l.quantity ? Number(l.quantity) : null,
-        unit_price: l.unit_price ? Number(l.unit_price) : null,
-        line_total: Number(l.line_total || 0),
+        quantity: l.quantity ? Number(l.quantity) : 1,
+        unit_price: Number(l.unit_price),
+        line_total: Number(l.line_total),
         category: l.category || null,
         destination: l.destination,
         house_id: l.destination === "house" ? l.house_id : null,
@@ -629,15 +644,38 @@ export default function NewInvoiceTab() {
             + إضافة عنصر جديد
           </button>
 
-          <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
-            <div className="flex flex-col gap-1">
-              <p className="font-bold">الإجمالي (بدون ضريبة): {total.toFixed(2)} ريال</p>
-              <p className="text-sm text-gray-600">مع 15% ضريبة: {(total * 1.15).toFixed(2)} ريال</p>
-            </div>
-            <button className="btn-primary" onClick={() => setStep("match")} disabled={lines.length === 0}>
-              الأسطر صحيحة، تابع للمطابقة ←
-            </button>
-          </div>
+          {(() => {
+            const itemsWithoutPrice = lines.filter((l) => Number(l.line_total || 0) === 0 || Number(l.unit_price || 0) === 0);
+            return (
+              <>
+                {itemsWithoutPrice.length > 0 && (
+                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-red-700 font-bold text-sm mb-2">⚠️ تنبيه: عناصر بدون سعر</p>
+                    <div className="text-xs text-red-600 space-y-1">
+                      {itemsWithoutPrice.slice(0, 5).map((item, i) => (
+                        <p key={i}>• {item.item_name}</p>
+                      ))}
+                      {itemsWithoutPrice.length > 5 && <p>... و {itemsWithoutPrice.length - 5} عناصر أخرى</p>}
+                    </div>
+                    <p className="text-red-700 text-xs mt-2">يجب إدخال السعر لكل عنصر قبل المتابعة</p>
+                  </div>
+                )}
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+                  <div className="flex flex-col gap-1">
+                    <p className="font-bold">الإجمالي (بدون ضريبة): {total.toFixed(2)} ريال</p>
+                    <p className="text-sm text-gray-600">مع 15% ضريبة: {(total * 1.15).toFixed(2)} ريال</p>
+                  </div>
+                  <button
+                    className="btn-primary"
+                    onClick={() => setStep("match")}
+                    disabled={lines.length === 0 || itemsWithoutPrice.length > 0}
+                  >
+                    الأسطر صحيحة، تابع للمطابقة ←
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </section>
       )}
 
