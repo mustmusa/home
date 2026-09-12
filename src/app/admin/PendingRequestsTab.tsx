@@ -16,6 +16,8 @@ export default function PendingRequestsTab() {
   const [purchases, setPurchases] = useState<PurchaseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [linkingRequestId, setLinkingRequestId] = useState<string | null>(null);
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
   const [updating, setUpdating] = useState(false);
   const [selectedHouse, setSelectedHouse] = useState<string | null>(null);
 
@@ -49,6 +51,31 @@ export default function PendingRequestsTab() {
       });
       if (!res.ok) throw new Error("فشل الربط");
       setLinkingRequestId(null);
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "حدث خطأ");
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function updateRequest(id: string, itemName: string) {
+    if (!itemName.trim()) {
+      alert("اسم العنصر مطلوب");
+      return;
+    }
+    setUpdating(true);
+    try {
+      const res = await fetch(`/api/requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_name: itemName.trim(),
+          quantity_text: itemName.trim()
+        }),
+      });
+      if (!res.ok) throw new Error("فشل التعديل");
+      setEditingRequestId(null);
       load();
     } catch (e) {
       alert(e instanceof Error ? e.message : "حدث خطأ");
@@ -161,13 +188,47 @@ export default function PendingRequestsTab() {
                           إلغاء
                         </button>
                       </div>
+                    ) : editingRequestId === r.id ? (
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold mb-2">تعديل الطلب:</p>
+                        <textarea
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          className="w-full text-xs p-2 rounded border border-gray-200"
+                          rows={2}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => updateRequest(r.id, editText)}
+                            disabled={updating}
+                            className="flex-1 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 px-2 py-1 rounded border border-green-200 font-semibold"
+                          >
+                            ✓ حفظ
+                          </button>
+                          <button
+                            onClick={() => setEditingRequestId(null)}
+                            className="flex-1 text-xs text-gray-600 hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded border border-gray-200"
+                          >
+                            إلغاء
+                          </button>
+                        </div>
+                      </div>
                     ) : (
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
                           <p className="font-medium">{r.item_name}</p>
                           {r.quantity_text && <p className="text-xs text-gray-500">{r.quantity_text}</p>}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-1 flex-wrap">
+                          <button
+                            onClick={() => {
+                              setEditText(r.item_name);
+                              setEditingRequestId(r.id);
+                            }}
+                            className="text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-2 py-1 rounded border border-purple-200"
+                          >
+                            ✎ تعديل
+                          </button>
                           <button
                             onClick={() => setLinkingRequestId(r.id)}
                             className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded border border-blue-200"
