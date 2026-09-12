@@ -94,37 +94,55 @@ export default function WifeDashboard() {
       // تنظيم المشتريات (من الطلبات المشتراة والفواتير)
       const purchasedData: Record<string, PurchaseByDate> = {};
 
-      // 1. إضافة الطلبات التي تم شراؤها
-      requests
-        .filter((r: PurchaseRequest) => r.status === "purchased")
-        .forEach((r: PurchaseRequest) => {
-          const date = String(r.requested_at).slice(0, 10);
-          const key = `${date}-requested`;
-          if (!purchasedData[key]) {
-            purchasedData[key] = {
-              date,
-              storeName: "🎯 طلب مشترى",
-              totalAmount: 0,
-              itemCount: 0,
-              items: [],
-            };
-          }
-          purchasedData[key].itemCount += 1;
-          purchasedData[key].items.push({
-            name: r.item_name || "عنصر",
-            quantity: 1,
-            unitPrice: 0,
-            lineTotal: 0,
-          });
-        });
-
-      // 2. إضافة المشتريات من الفواتير
+      // 1. بناء خريطة من matched_request_id إلى تفاصيل السطر (للحصول على الأسعار من الفواتير)
+      const requestPriceMap: Record<string, { storeName: string; quantity: number; unitPrice: number; lineTotal: number; date: string }> = {};
       const purchases = purchasesRes.purchases ?? [];
       purchases.forEach((p: any) => {
         const date = p.created_at.slice(0, 10);
-        const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id);
+        const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id && l.matched_request_id);
+        items.forEach((item: any) => {
+          if (item.matched_request_id) {
+            requestPriceMap[item.matched_request_id] = {
+              storeName: p.store_name || "متجر",
+              quantity: Number(item.quantity || 1),
+              unitPrice: item.quantity ? Number(item.line_total) / Number(item.quantity) : 0,
+              lineTotal: Number(item.line_total || 0),
+              date,
+            };
+          }
+        });
+      });
+
+      // 2. إضافة الطلبات التي تم شراؤها (مع الأسعار من الفواتير إن وجدت)
+      requests
+        .filter((r: PurchaseRequest) => r.status === "purchased")
+        .forEach((r: PurchaseRequest) => {
+          const priceInfo = requestPriceMap[r.id];
+          const date = priceInfo ? priceInfo.date : String(r.requested_at).slice(0, 10);
+          const key = `${date}-${r.id}`;
+          if (!purchasedData[key]) {
+            purchasedData[key] = {
+              date,
+              storeName: priceInfo?.storeName || "🎯 طلب مشترى",
+              totalAmount: priceInfo?.lineTotal || 0,
+              itemCount: 1,
+              items: [],
+            };
+          }
+          purchasedData[key].items.push({
+            name: r.item_name || "عنصر",
+            quantity: priceInfo?.quantity || 1,
+            unitPrice: priceInfo?.unitPrice || 0,
+            lineTotal: priceInfo?.lineTotal || 0,
+          });
+        });
+
+      // 3. إضافة المشتريات من الفواتير التي لم تُربط بطلبات
+      purchases.forEach((p: any) => {
+        const date = p.created_at.slice(0, 10);
+        const items = (p.purchase_lines || []).filter((l: any) => l.house_id === currentUser.house_id && !l.matched_request_id);
         if (items.length > 0) {
-          const key = `${date}-invoice`;
+          const key = `${date}-invoice-${p.id}`;
           if (!purchasedData[key]) {
             purchasedData[key] = {
               date,
