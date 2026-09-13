@@ -9,6 +9,7 @@ import ActiveOrdersTab from "./ActiveOrdersTab";
 import PurchasedOrdersTab from "./PurchasedOrdersTab";
 import UsersTab from "./UsersTab";
 import FixPricesTab from "./FixPricesTab";
+import OffersTab from "./OffersTab";
 import WarehouseManager from "@/components/WarehouseManager";
 import type { House } from "@/lib/types";
 
@@ -20,6 +21,7 @@ const TABS = [
   { id: "invoice", label: "فاتورة جديدة" },
   { id: "fix-prices", label: "🔧 إصلاح الأسعار" },
   { id: "warehouse", label: "المخزون" },
+  { id: "offers", label: "🎁 العروض" },
   { id: "reports", label: "التقارير" },
   { id: "users", label: "المستخدمون" },
 ] as const;
@@ -59,6 +61,7 @@ export default function AdminDashboard() {
       {tab === "invoice" && <NewInvoiceTab />}
       {tab === "fix-prices" && <FixPricesTab />}
       {tab === "warehouse" && <WarehouseManager />}
+      {tab === "offers" && <OffersTab />}
       {tab === "reports" && <ReportsTab />}
       {tab === "users" && <UsersTab />}
     </div>
