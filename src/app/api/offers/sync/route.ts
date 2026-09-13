@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 
-  const { url, mall, offset = 0, batchSize = 3, dryRun = false } = await req.json();
+  const { url, mall, offset = 0, batchSize = 2, dryRun = false } = await req.json();
 
   if (!MALLS.includes(mall)) {
     return NextResponse.json({ error: "المول غير صحيح", malls: MALLS }, { status: 400 });
@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
   const message = await client.messages.create({
     model: "claude-opus-5",
     max_tokens: 16000,
+    output_config: { effort: "low" },
     messages: [
       {
         role: "user",

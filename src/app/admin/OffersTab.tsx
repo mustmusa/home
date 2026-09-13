@@ -32,6 +32,7 @@ export default function OffersTab() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [preview, setPreview] = useState<Offer[] | null>(null);
   const [raw, setRaw] = useState<string | null>(null);
+  const [failedAt, setFailedAt] = useState<number | null>(null);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -127,7 +128,19 @@ export default function OffersTab() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: d4dUrl, mall: selectedMall, ...body }),
     });
-    const data = await res.json();
+
+    // A timed-out or crashed function replies with a text error page, not JSON.
+    const body_ = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(body_);
+    } catch {
+      throw new Error(
+        res.status === 504 || /timeout|FUNCTION_INVOCATION/i.test(body_)
+          ? "انتهت مهلة الخادم أثناء قراءة الصفحة. أعد المحاولة."
+          : `الخادم رجّع خطأ (${res.status}). أعد المحاولة.`
+      );
+    }
     if (!res.ok) throw new Error(data.error || "فشل الطلب");
     return data;
   }
@@ -151,12 +164,13 @@ export default function OffersTab() {
     }
   }
 
-  async function syncAll() {
+  async function syncAll(resumeFrom = 0) {
     setBusy(true);
     setError(null);
     setSuccess(null);
     setPreview(null);
-    let offset = 0;
+    setFailedAt(null);
+    let offset = resumeFrom;
     let inserted = 0;
     try {
       for (;;) {
@@ -169,10 +183,12 @@ export default function OffersTab() {
       setSuccess(`تم. حُفظ ${inserted} عرض من ${selectedMall}.`);
       loadOffers();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "خطأ غير متوقع");
+      setFailedAt(offset);
+      setError(
+        `${e instanceof Error ? e.message : "خطأ غير متوقع"} (توقف عند الصفحة ${offset})`
+      );
     } finally {
       setBusy(false);
-      setProgress(null);
     }
   }
 
@@ -234,13 +250,21 @@ export default function OffersTab() {
                   اختبار صفحة واحدة
                 </button>
                 <button
-                  onClick={syncAll}
+                  onClick={() => syncAll(0)}
                   disabled={busy || !d4dUrl}
                   className="flex-1 px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium disabled:opacity-40"
                 >
                   جلب كل الصفحات
                 </button>
               </div>
+              {failedAt !== null && !busy && (
+                <button
+                  onClick={() => syncAll(failedAt)}
+                  className="w-full px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-medium"
+                >
+                  متابعة من الصفحة {failedAt}
+                </button>
+              )}
               {progress && (
                 <div className="space-y-1">
                   <div className="h-2 bg-gray-200 rounded overflow-hidden">
