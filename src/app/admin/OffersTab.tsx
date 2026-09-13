@@ -193,6 +193,7 @@ export default function OffersTab() {
         const data = await callSync({ offset });
         inserted += data.inserted ?? 0;
         setProgress({ done: data.processedPages, total: data.totalPages });
+        loadOffers();
         if (data.done) break;
         offset = data.nextOffset;
       }

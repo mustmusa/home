@@ -91,6 +91,12 @@ export async function GET(req: NextRequest) {
     .filter((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u) && !/logo|icon|sprite|avatar|flag/i.test(u))
     .slice(0, 30);
 
+  const offerLinks = [...new Set(
+    [...body.matchAll(/<a[^>]+href=["']([^"']*\/offers\/[^"']*)["']/gi)].map((m) => m[1])
+  )]
+    .map((h) => (h.startsWith("http") ? h : `https://d4donline.com${h.startsWith("/") ? "" : "/"}${h}`))
+    .slice(0, 60);
+
   return NextResponse.json({
     finalUrl: res.url,
     status: res.status,
@@ -109,6 +115,7 @@ export async function GET(req: NextRequest) {
     imageCount: imgSrcs.length,
     ogImages,
     bigImages,
+    offerLinks,
     headSample: body.slice(0, 400),
   });
 }
