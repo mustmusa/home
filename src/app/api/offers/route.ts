@@ -14,34 +14,39 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = supabaseServer();
-    let query = db
-      .from("offers")
-      .select("*", { count: "exact" })
-      .order("created_at", { ascending: false })
-      .limit(limit);
 
-    if (mall) {
-      query = query.eq("mall", mall);
-    }
+    const countQuery = db.from("offers").select("id", { count: "exact", head: true });
+    const { count } = await (mall ? countQuery.eq("mall", mall) : countQuery);
 
-    const { data, error, count } = await query;
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    // PostgREST caps a response at 1000 rows whatever limit is asked for, so
+    // a single request silently returns only the newest mall's offers.
+    const PAGE = 1000;
+    const rows: Record<string, unknown>[] = [];
+    for (let from = 0; from < limit; from += PAGE) {
+      let q = db
+        .from("offers")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(from, Math.min(from + PAGE, limit) - 1);
+      if (mall) q = q.eq("mall", mall);
 
-    // تجميع حسب المول
-    const grouped: Record<string, any[]> = {};
-    (data || []).forEach((offer) => {
-      if (!grouped[offer.mall]) {
-        grouped[offer.mall] = [];
+      const { data, error } = await q;
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
       }
-      grouped[offer.mall].push(offer);
-    });
+      rows.push(...(data ?? []));
+      if (!data || data.length < PAGE) break;
+    }
+
+    const grouped: Record<string, any[]> = {};
+    for (const offer of rows as any[]) {
+      (grouped[offer.mall] ??= []).push(offer);
+    }
 
     return NextResponse.json({
       success: true,
-      total: count ?? data?.length ?? 0,
-      shown: data?.length ?? 0,
+      total: count ?? rows.length,
+      shown: rows.length,
       malls: Object.keys(grouped),
       offers: grouped,
     });
