@@ -164,6 +164,7 @@ async function handle(req: NextRequest) {
     batchSize = 2,
     dryRun = false,
     compare = false,
+    force = false,
     model = DEFAULT_MODEL,
   } = await req.json();
 
@@ -221,6 +222,25 @@ async function handle(req: NextRequest) {
         projectedMallCostUsd: Number((strong.costUsd * scale).toFixed(2)),
       },
     });
+  }
+
+  // Re-reading a flyer already stored costs a full run and yields the same
+  // rows, so a known campaign is refused unless the caller insists.
+  if (!dryRun && offset === 0 && campaignId && !force) {
+    const { count } = await supabaseServer()
+      .from("offers")
+      .select("id", { count: "exact", head: true })
+      .eq("mall", mall)
+      .eq("source", "scrape")
+      .eq("campaign_id", campaignId);
+    if ((count ?? 0) > 0) {
+      return NextResponse.json({
+        alreadySynced: true,
+        campaignId,
+        existing: count,
+        totalPages: pages.length,
+      });
+    }
   }
 
   const slice = dryRun ? pages.slice(0, 1) : pages.slice(offset, offset + batchSize);

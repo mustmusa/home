@@ -39,6 +39,7 @@ export default function OffersTab() {
   const [campaigns, setCampaigns] = useState<Record<string, Campaign[]>>({});
   const [discovering, setDiscovering] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  const [alreadySynced, setAlreadySynced] = useState(false);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -201,17 +202,25 @@ export default function OffersTab() {
     }
   }
 
-  async function syncAll(resumeFrom = 0) {
+  async function syncAll(resumeFrom = 0, force = false) {
     setBusy(true);
     setError(null);
     setSuccess(null);
     setPreview(null);
     setFailedAt(null);
+    setAlreadySynced(false);
     let offset = resumeFrom;
     let inserted = 0;
     try {
       for (;;) {
-        const data = await callSync({ offset });
+        const data = await callSync({ offset, force });
+        if (data.alreadySynced) {
+          setSuccess(
+            `هذه النشرة محفوظة بالفعل (${data.existing} عرض). لم يُقرأ شيء ولم تُصرف تكلفة.`
+          );
+          setAlreadySynced(true);
+          return;
+        }
         inserted += data.inserted ?? 0;
         setProgress({ done: data.processedPages, total: data.totalPages });
         loadOffers();
@@ -362,6 +371,14 @@ export default function OffersTab() {
                   جلب كل الصفحات
                 </button>
               </div>
+              {alreadySynced && !busy && (
+                <button
+                  onClick={() => syncAll(0, true)}
+                  className="w-full px-3 py-2 border border-amber-500 text-amber-600 rounded-lg text-xs font-medium"
+                >
+                  أعد الجلب رغم ذلك (تُصرف تكلفة كاملة)
+                </button>
+              )}
               {failedAt !== null && !busy && (
                 <button
                   onClick={() => syncAll(failedAt)}
