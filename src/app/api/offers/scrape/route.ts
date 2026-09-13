@@ -99,27 +99,27 @@ export async function POST(req: NextRequest) {
     // Use Claude to extract structured offer data from the HTML
     const claudeResponse = await client.messages.create({
       model: "claude-opus-5",
-      max_tokens: 3000,
+      max_tokens: 4000,
       messages: [
         {
           role: "user",
-          content: `أنت متخصص في استخراج بيانات العروض والصفقات من صفحات الويب.
+          content: `أنت متخصص في استخراج بيانات العروض الحقيقية فقط من صفحات المتاجر.
 
-من الصفحة التالية (من موقع ${siteConfig.name || "العروض"})، استخرج جميع العروض والمنتجات والصفقات المتاحة.
+من HTML الصفحة التالية (من ${siteConfig.name || "متجر"})، استخرج العروض والصفقات الفعلية:
 
 المحتوى:
 \`\`\`html
-${htmlContent.slice(0, 8000)}
+${htmlContent.slice(0, 12000)}
 \`\`\`
 
-المتطلبات:
-1. استخرج اسم كل منتج/عنصر
-2. استخرج السعر الأصلي إن وجد
-3. استخرج السعر الحالي أو سعر العرض
-4. استخرج نسبة الخصم إن وجدت
-5. أضف وصف قصير للمنتج إن أمكن
+القواعد الحاسمة:
+1. استخرج فقط المنتجات التي لديها سعر عرض واضح ومعروف
+2. يجب أن يكون لكل عنصر "offer_price" قيمة رقمية صحيحة (مطلوب)
+3. لا تستخرج عناصر بدون أسعار أو بأسعار غير واضحة
+4. استخرج السعر الأصلي فقط إذا كان مختلف عن سعر العرض
+5. الأسعار يجب أن تكون أرقام إيجابية فقط
 
-صيغة الإخراج (JSON array فقط، بدون نص آخر):
+صيغة الإخراج (JSON array فقط، بلا شرح):
 [
   {
     "item_name": "اسم المنتج",
@@ -130,11 +130,14 @@ ${htmlContent.slice(0, 8000)}
   }
 ]
 
-ملاحظات:
-- الأسعار يجب أن تكون أرقام فقط
-- إذا لم يكن هناك سعر أصلي، اترك الحقل بدون قيمة
-- استخرج أكبر عدد ممكن من العروض
-- يجب أن تكون النتيجة JSON صحيحة`,
+متطلبات JSON:
+- offer_price: مطلوب وقيمة رقمية > 0
+- item_name: مطلوب ودقيق
+- original_price: اختياري (فقط إذا كان أعلى من offer_price)
+- discount_percent: اختياري
+- description: اختياري
+
+انتبه: تجاهل أي عناصر ناقصة أو غير واضحة أو بدون أسعار حقيقية.`,
         },
       ],
     });
@@ -170,22 +173,41 @@ ${htmlContent.slice(0, 8000)}
       }
     }
 
-    if (offers.length === 0) {
+    // Validate offers - filter out invalid ones
+    const validOffers = offers.filter(
+      (offer) =>
+        offer.item_name &&
+        typeof offer.item_name === "string" &&
+        offer.item_name.trim().length > 0 &&
+        offer.offer_price &&
+        typeof offer.offer_price === "number" &&
+        offer.offer_price > 0
+    );
+
+    if (validOffers.length === 0) {
       return NextResponse.json(
-        { error: "لم يتمكن من استخراج عروض من الصفحة. قد تكون الصفحة محمية أو فارغة" },
+        { error: "لم يتمكن من استخراج عروض صحيحة من الصفحة. تأكد من وجود أسعار واضحة" },
         { status: 400 }
       );
     }
 
+    console.log(`تم العثور على ${validOffers.length} عرض صحيح من أصل ${offers.length} عرض`);
+
     // Save offers to database
     const db = supabaseServer();
-    const offersToInsert = offers.map((offer) => ({
+    const offersToInsert = validOffers.map((offer) => ({
       mall,
-      item_name: offer.item_name,
-      original_price: offer.original_price || null,
-      offer_price: offer.offer_price,
-      discount_percent: offer.discount_percent || null,
-      description: offer.description || null,
+      item_name: String(offer.item_name).trim(),
+      original_price:
+        offer.original_price && typeof offer.original_price === "number" && offer.original_price > 0
+          ? offer.original_price
+          : null,
+      offer_price: Number(offer.offer_price) || 0,
+      discount_percent:
+        offer.discount_percent && typeof offer.discount_percent === "number" && offer.discount_percent > 0
+          ? offer.discount_percent
+          : null,
+      description: offer.description ? String(offer.description).trim() : null,
       source: "scrape",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
