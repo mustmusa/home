@@ -17,8 +17,8 @@ type ExtractedOffer = {
 
 const SCRAPING_SITES = {
   d4donline: {
-    url: "https://d4donline.com/en/saudi-arabia/riyadh/offers",
-    selector: "[data-testid='merchant-offer-card']", // Need to inspect the actual site
+    url: "https://d4donline.com/ar/saudi-arabia/riyadh/offers",
+    name: "D4D Online",
   },
 };
 
@@ -40,62 +40,68 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "المصدر غير معروف" }, { status: 400 });
     }
 
-    // Fetch the webpage
-    const response = await axios.get(siteConfig.url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      },
-      timeout: 10000,
-    });
-
-    const $ = cheerio.load(response.data);
-
-    // Extract HTML content for Claude to analyze
-    const htmlContent = $.html();
+    // Fetch the webpage with enhanced headers
+    let htmlContent = "";
+    try {
+      const response = await axios.get(siteConfig.url, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "Accept-Language": "ar-SA,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Referer": "https://d4donline.com",
+        },
+        timeout: 15000,
+        maxRedirects: 5,
+      });
+      htmlContent = response.data;
+    } catch (fetchError: any) {
+      console.error("خطأ في جلب الصفحة:", fetchError.message);
+      return NextResponse.json(
+        { error: `فشل جلب البيانات من الموقع: ${fetchError.message}` },
+        { status: 500 }
+      );
+    }
 
     // Use Claude to extract structured offer data from the HTML
     const claudeResponse = await client.messages.create({
       model: "claude-opus-5",
-      max_tokens: 2000,
+      max_tokens: 3000,
       messages: [
         {
           role: "user",
-          content: `أنت متخصص في استخراج بيانات العروض من صفحات الويب.
+          content: `أنت متخصص في استخراج بيانات العروض والصفقات من صفحات الويب.
 
-استخرج جميع العروض من هذا المحتوى HTML:
+من الصفحة التالية (من موقع ${siteConfig.name || "العروض"})، استخرج جميع العروض والمنتجات والصفقات المتاحة.
 
+المحتوى:
 \`\`\`html
-${htmlContent.slice(0, 5000)}
+${htmlContent.slice(0, 8000)}
 \`\`\`
 
-استخرج جميع العروض والمنتجات المعروضة على الصفحة.
+المتطلبات:
+1. استخرج اسم كل منتج/عنصر
+2. استخرج السعر الأصلي إن وجد
+3. استخرج السعر الحالي أو سعر العرض
+4. استخرج نسبة الخصم إن وجدت
+5. أضف وصف قصير للمنتج إن أمكن
 
-لكل عرض، استخرج:
-- اسم المنتج/العنصر
-- السعر الأصلي (إن وجد)
-- سعر العرض الحالي
-- نسبة الخصم (إن وجدت)
-- وصف قصير (اختياري)
-
-أرجع النتيجة كـ JSON array بالصيغة التالية:
+صيغة الإخراج (JSON array فقط، بدون نص آخر):
 [
   {
     "item_name": "اسم المنتج",
     "original_price": 100,
     "offer_price": 75,
     "discount_percent": 25,
-    "description": "وصف قصير"
+    "description": "وصف"
   }
 ]
 
-تأكد من:
-1. استخراج جميع العروض الموجودة
-2. الأسعار يجب أن تكون أرقام (بدون عملة)
-3. إذا لم يكن هناك سعر أصلي، اتركه فارغاً
-4. يجب أن تكون النتيجة JSON صحيحة
-
-أرجع JSON فقط بدون تفسيرات إضافية.`,
+ملاحظات:
+- الأسعار يجب أن تكون أرقام فقط
+- إذا لم يكن هناك سعر أصلي، اترك الحقل بدون قيمة
+- استخرج أكبر عدد ممكن من العروض
+- يجب أن تكون النتيجة JSON صحيحة`,
         },
       ],
     });
@@ -103,22 +109,39 @@ ${htmlContent.slice(0, 5000)}
     // Parse Claude's response
     const content = claudeResponse.content[0];
     if (content.type !== "text") {
-      return NextResponse.json({ error: "فشل في استخراج البيانات" }, { status: 500 });
+      return NextResponse.json({ error: "فشل في استخراج البيانات من الصفحة" }, { status: 500 });
     }
 
     let offers: ExtractedOffer[] = [];
     try {
-      offers = JSON.parse(content.text);
-    } catch (e) {
-      const jsonMatch = content.text.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        offers = JSON.parse(jsonMatch[0]);
-      } else {
-        return NextResponse.json(
-          { error: "لم يتمكن من استخراج البيانات بصيغة صحيحة" },
-          { status: 400 }
-        );
+      const trimmed = content.text.trim();
+      offers = JSON.parse(trimmed);
+
+      // Validate that it's an array
+      if (!Array.isArray(offers)) {
+        offers = [];
       }
+    } catch (e) {
+      // Try to extract JSON from the response
+      const jsonMatch = content.text.match(/\[[\s\S]*?\]/);
+      if (jsonMatch) {
+        try {
+          offers = JSON.parse(jsonMatch[0]);
+          if (!Array.isArray(offers)) {
+            offers = [];
+          }
+        } catch (parseError) {
+          console.error("خطأ في تحليل JSON المستخرج:", parseError);
+          offers = [];
+        }
+      }
+    }
+
+    if (offers.length === 0) {
+      return NextResponse.json(
+        { error: "لم يتمكن من استخراج عروض من الصفحة. قد تكون الصفحة محمية أو فارغة" },
+        { status: 400 }
+      );
     }
 
     // Save offers to database
