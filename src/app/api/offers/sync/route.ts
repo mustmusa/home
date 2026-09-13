@@ -16,6 +16,14 @@ function getClient(): Anthropic {
 
 const MALLS = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
+// USD per million tokens, for the cost figures shown in the comparison.
+const MODELS = {
+  "claude-sonnet-5": { in: 2, out: 10 },
+  "claude-opus-5": { in: 5, out: 25 },
+} as const;
+type ModelId = keyof typeof MODELS;
+const DEFAULT_MODEL: ModelId = "claude-sonnet-5";
+
 type Extracted = {
   item_name: string;
   original_price?: number | null;
@@ -43,7 +51,9 @@ function flyerPages(html: string): string[] {
           return node.image
             .filter((u: unknown): u is string => typeof u === "string")
             .map(normalize)
-            .filter((u: string) => /^https:\/\/cdn\.d4donline\.com\/.+\.(webp|jpe?g|png)$/i.test(u));
+            .filter((u: string) =>
+              /^https:\/\/cdn\.d4donline\.com\/.+\.(webp|jpe?g|png)$/i.test(u)
+            );
         }
       }
     } catch {
@@ -74,16 +84,94 @@ const PROMPT = `استخرج كل عرض ظاهر في صور نشرة العر�
 أعد مصفوفة JSON فقط، بلا أي نص آخر:
 [{"item_name":"...","offer_price":0,"original_price":null,"discount_percent":null,"description":null}]`;
 
+const positive = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+
+function parseOffers(text: string): Extracted[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text.trim());
+  } catch {
+    const m = text.match(/\[[\s\S]*\]/);
+    if (!m) return [];
+    try {
+      raw = JSON.parse(m[0]);
+    } catch {
+      return [];
+    }
+  }
+  return (Array.isArray(raw) ? raw : []).filter(
+    (o): o is Extracted =>
+      !!o &&
+      typeof o.item_name === "string" &&
+      o.item_name.trim().length > 0 &&
+      positive(o.offer_price) !== null
+  );
+}
+
+async function extractPages(model: ModelId, urls: string[]) {
+  const message = await getClient().messages.create({
+    model,
+    max_tokens: 16000,
+    output_config: { effort: "low" },
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...urls.map((u) => ({
+            type: "image" as const,
+            source: { type: "url" as const, url: u },
+          })),
+          { type: "text" as const, text: PROMPT },
+        ],
+      },
+    ],
+  });
+
+  if (message.stop_reason === "refusal") {
+    throw new Error(`رُفض الطلب على ${model}`);
+  }
+
+  const text = message.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+
+  const price = MODELS[model];
+  const cost =
+    (message.usage.input_tokens / 1e6) * price.in +
+    (message.usage.output_tokens / 1e6) * price.out;
+
+  return {
+    model,
+    offers: parseOffers(text),
+    usage: message.usage,
+    costUsd: Number(cost.toFixed(4)),
+    raw: text.slice(0, 2000),
+  };
+}
+
 async function handle(req: NextRequest) {
   const session = await getSession();
   if (!session || session.role !== "admin") {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 
-  const { url, mall, offset = 0, batchSize = 2, dryRun = false } = await req.json();
+  const {
+    url,
+    mall,
+    offset = 0,
+    batchSize = 2,
+    dryRun = false,
+    compare = false,
+    model = DEFAULT_MODEL,
+  } = await req.json();
 
   if (!MALLS.includes(mall)) {
     return NextResponse.json({ error: "المول غير صحيح", malls: MALLS }, { status: 400 });
+  }
+  if (!(model in MODELS)) {
+    return NextResponse.json({ error: "النموذج غير معروف" }, { status: 400 });
   }
   let parsed: URL;
   try {
@@ -103,18 +191,35 @@ async function handle(req: NextRequest) {
     },
   });
   if (!pageRes.ok) {
-    return NextResponse.json(
-      { error: `الموقع رجّع ${pageRes.status}` },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: `الموقع رجّع ${pageRes.status}` }, { status: 502 });
   }
 
   const pages = flyerPages(await pageRes.text());
   if (pages.length === 0) {
-    return NextResponse.json(
-      { error: "لم أجد صفحات النشرة في هذه الصفحة" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "لم أجد صفحات النشرة في هذه الصفحة" }, { status: 404 });
+  }
+
+  // Side-by-side on one page, so the cheaper model is chosen on evidence.
+  if (compare) {
+    const [fast, strong] = await Promise.all([
+      extractPages("claude-sonnet-5", pages.slice(0, 1)),
+      extractPages("claude-opus-5", pages.slice(0, 1)),
+    ]);
+    const perMallPages = pages.length;
+    const scale = perMallPages / Math.max(1, batchSize);
+    return NextResponse.json({
+      compare: true,
+      totalPages: perMallPages,
+      testedPage: pages[0],
+      sonnet: {
+        ...fast,
+        projectedMallCostUsd: Number((fast.costUsd * scale).toFixed(2)),
+      },
+      opus: {
+        ...strong,
+        projectedMallCostUsd: Number((strong.costUsd * scale).toFixed(2)),
+      },
+    });
   }
 
   const slice = dryRun ? pages.slice(0, 1) : pages.slice(offset, offset + batchSize);
@@ -122,89 +227,40 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ done: true, totalPages: pages.length, offset });
   }
 
-  const message = await getClient().messages.create({
-    model: "claude-opus-5",
-    max_tokens: 16000,
-    output_config: { effort: "low" },
-    messages: [
-      {
-        role: "user",
-        content: [
-          ...slice.map((u) => ({
-            type: "image" as const,
-            source: { type: "url" as const, url: u },
-          })),
-          { type: "text" as const, text: PROMPT },
-        ],
-      },
-    ],
-  });
-
-  if (message.stop_reason === "refusal") {
-    return NextResponse.json({ error: "رُفض الطلب" }, { status: 502 });
-  }
-
-  const text = message.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text.trim());
-  } catch {
-    const m = text.match(/\[[\s\S]*\]/);
-    if (!m) {
-      return NextResponse.json(
-        { error: "تعذّر قراءة رد النموذج", sample: text.slice(0, 400) },
-        { status: 502 }
-      );
-    }
-    raw = JSON.parse(m[0]);
-  }
-
-  const num = (v: unknown) =>
-    typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
-
-  const valid = (Array.isArray(raw) ? raw : []).filter(
-    (o): o is Extracted =>
-      !!o &&
-      typeof o.item_name === "string" &&
-      o.item_name.trim().length > 0 &&
-      num(o.offer_price) !== null
-  );
+  const result = await extractPages(model as ModelId, slice);
 
   if (dryRun) {
     return NextResponse.json({
       dryRun: true,
+      model,
       totalPages: pages.length,
       testedPage: slice[0],
-      extracted: valid.length,
-      offers: valid.slice(0, 20),
-      usage: message.usage,
-      promptVersion: 3,
-      raw: text.slice(0, 2500),
+      extracted: result.offers.length,
+      offers: result.offers.slice(0, 20),
+      usage: result.usage,
+      costUsd: result.costUsd,
+      promptVersion: 4,
+      raw: result.raw,
     });
   }
 
   const db = supabaseServer();
-
   if (offset === 0) {
     await db.from("offers").delete().eq("mall", mall).eq("source", "scrape");
   }
 
   let inserted = 0;
-  if (valid.length > 0) {
+  if (result.offers.length > 0) {
     const now = new Date().toISOString();
     const { data, error } = await db
       .from("offers")
       .insert(
-        valid.map((o) => ({
+        result.offers.map((o) => ({
           mall,
           item_name: o.item_name.trim(),
-          offer_price: num(o.offer_price)!,
-          original_price: num(o.original_price),
-          discount_percent: num(o.discount_percent),
+          offer_price: positive(o.offer_price)!,
+          original_price: positive(o.original_price),
+          discount_percent: positive(o.discount_percent),
           description: o.description ? String(o.description).trim() : null,
           source: "scrape",
           created_at: now,
@@ -221,12 +277,13 @@ async function handle(req: NextRequest) {
   const nextOffset = offset + slice.length;
   return NextResponse.json({
     mall,
+    model,
     totalPages: pages.length,
     processedPages: nextOffset,
     nextOffset,
     done: nextOffset >= pages.length,
     inserted,
-    usage: message.usage,
+    costUsd: result.costUsd,
   });
 }
 
@@ -244,11 +301,7 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      {
-        error: e instanceof Error ? e.message : String(e),
-        kind: "server",
-        stack: e instanceof Error ? e.stack?.split("\n").slice(0, 4).join(" | ") : undefined,
-      },
+      { error: e instanceof Error ? e.message : String(e), kind: "server" },
       { status: 500 }
     );
   }
@@ -259,17 +312,18 @@ export async function GET() {
   if (!session || session.role !== "admin") {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
-  let clientOk: string;
+  let clientInit: string;
   try {
     getClient();
-    clientOk = "ok";
+    clientInit = "ok";
   } catch (e) {
-    clientOk = e instanceof Error ? e.message : String(e);
+    clientInit = e instanceof Error ? e.message : String(e);
   }
   return NextResponse.json({
     routeLoaded: true,
     hasApiKey: !!process.env.ANTHROPIC_API_KEY,
     keyLength: process.env.ANTHROPIC_API_KEY?.length ?? 0,
-    clientInit: clientOk,
+    clientInit,
+    defaultModel: DEFAULT_MODEL,
   });
 }

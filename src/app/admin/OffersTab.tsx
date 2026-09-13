@@ -33,6 +33,7 @@ export default function OffersTab() {
   const [preview, setPreview] = useState<Offer[] | null>(null);
   const [raw, setRaw] = useState<string | null>(null);
   const [failedAt, setFailedAt] = useState<number | null>(null);
+  const [cmp, setCmp] = useState<any | null>(null);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -145,6 +146,21 @@ export default function OffersTab() {
     return data;
   }
 
+  async function compareModels() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    setPreview(null);
+    setCmp(null);
+    try {
+      setCmp(await callSync({ compare: true }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function testOnePage() {
     setBusy(true);
     setError(null);
@@ -241,6 +257,40 @@ export default function OffersTab() {
                 placeholder="https://d4donline.com/en/saudi-arabia/riyadh/offers/..."
                 className="input w-full text-xs"
               />
+              <button
+                onClick={compareModels}
+                disabled={busy || !d4dUrl}
+                className="w-full px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium disabled:opacity-40"
+              >
+                ⚖️ قارن Sonnet 5 مع Opus 5 على نفس الصفحة
+              </button>
+              {cmp && (
+                <div className="grid grid-cols-2 gap-2">
+                  {(["sonnet", "opus"] as const).map((k) => (
+                    <div key={k} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="bg-gray-50 p-2 border-b border-gray-200">
+                        <p className="text-xs font-bold">
+                          {k === "sonnet" ? "Sonnet 5" : "Opus 5"}
+                        </p>
+                        <p className="text-[10px] text-gray-500">
+                          {cmp[k].offers.length} عرض · ${cmp[k].costUsd}
+                        </p>
+                        <p className="text-[10px] text-gray-500">
+                          المول كامل ≈ ${cmp[k].projectedMallCostUsd}
+                        </p>
+                      </div>
+                      <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                        {cmp[k].offers.map((o: Offer, i: number) => (
+                          <div key={i} className="p-1.5 text-[10px]">
+                            <p>{o.item_name}</p>
+                            <p className="font-bold text-green-600">{o.offer_price} ر.س</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={testOnePage}
