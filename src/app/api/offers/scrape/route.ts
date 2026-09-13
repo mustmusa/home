@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import axios from "axios";
 import * as cheerio from "cheerio";
+import puppeteer from "puppeteer";
 import { Anthropic } from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
@@ -40,27 +41,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "المصدر غير معروف" }, { status: 400 });
     }
 
-    // Fetch the webpage with enhanced headers
+    // Fetch the webpage with Puppeteer (for JavaScript-heavy sites)
     let htmlContent = "";
     try {
-      const response = await axios.get(siteConfig.url, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-          "Accept-Language": "ar-SA,ar;q=0.9,en-US;q=0.8,en;q=0.7",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Referer": "https://d4donline.com",
-        },
-        timeout: 15000,
-        maxRedirects: 5,
+      console.log("محاولة جلب الصفحة باستخدام Puppeteer...");
+
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
       });
-      htmlContent = response.data;
-    } catch (fetchError: any) {
-      console.error("خطأ في جلب الصفحة:", fetchError.message);
-      return NextResponse.json(
-        { error: `فشل جلب البيانات من الموقع: ${fetchError.message}` },
-        { status: 500 }
+
+      const page = await browser.newPage();
+
+      // Set realistic viewport and user agent
+      await page.setViewport({ width: 1280, height: 720 });
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       );
+
+      // Navigate to the page with a timeout
+      await page.goto(siteConfig.url, {
+        waitUntil: 'networkidle2',
+        timeout: 30000
+      });
+
+      // Get the full HTML after JavaScript rendering
+      htmlContent = await page.content();
+
+      await browser.close();
+      console.log("تم جلب الصفحة بنجاح بـ Puppeteer");
+    } catch (puppeteerError: any) {
+      console.warn("فشل Puppeteer، محاولة axios البسيطة:", puppeteerError.message);
+
+      // Fallback to axios if Puppeteer fails
+      try {
+        const response = await axios.get(siteConfig.url, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept-Language": "ar-SA,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://d4donline.com",
+          },
+          timeout: 15000,
+          maxRedirects: 5,
+        });
+        htmlContent = response.data;
+      } catch (axiosError: any) {
+        console.error("فشل كلا الطريقتين:", axiosError.message);
+        return NextResponse.json(
+          { error: `فشل جلب البيانات من الموقع: ${axiosError.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     // Use Claude to extract structured offer data from the HTML
