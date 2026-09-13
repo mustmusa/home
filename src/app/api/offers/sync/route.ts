@@ -60,7 +60,9 @@ const PROMPT = `استخرج كل عرض ظاهر في صور نشرة العر�
 - offer_price مطلوب دائماً ويجب أن يكون رقماً أكبر من صفر
 - لا تخمّن سعراً غير مقروء
 - الأسعار أرقام فقط بلا رمز عملة
-- النشرة قد تعرض نفس المنتج بأحجام مختلفة وأسعار مختلفة: سجّل كل حجم كعرض منفصل، وضع حجمه في description حتى لا يلتبسا
+- النشرة قد تعرض نفس المنتج بأحجام مختلفة وأسعار مختلفة: سجّل كل حجم كعرض منفصل
+- إذا ظهر حجم أو وزن أو عدد حبات أو كلمة (كرتون/حبة/كجم/جم/لتر/مل)، فأضفه في نهاية item_name بين قوسين وكرّره في description
+- لا تترك منتجين بنفس item_name تماماً وسعرين مختلفين: ميّزهما بالحجم
 
 أعد مصفوفة JSON فقط، بلا أي نص آخر:
 [{"item_name":"...","offer_price":0,"original_price":null,"discount_percent":null,"description":null}]`;
@@ -172,6 +174,8 @@ export async function POST(req: NextRequest) {
       extracted: valid.length,
       offers: valid.slice(0, 20),
       usage: message.usage,
+      promptVersion: 3,
+      raw: text.slice(0, 2500),
     });
   }
 

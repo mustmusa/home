@@ -31,6 +31,7 @@ export default function OffersTab() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [preview, setPreview] = useState<Offer[] | null>(null);
+  const [raw, setRaw] = useState<string | null>(null);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -139,8 +140,9 @@ export default function OffersTab() {
     try {
       const data = await callSync({ dryRun: true });
       setPreview(data.offers || []);
+      setRaw(data.raw ?? null);
       setSuccess(
-        `النشرة فيها ${data.totalPages} صفحة. استُخرج ${data.extracted} عرض من الصفحة الأولى.`
+        `[نسخة ${data.promptVersion ?? "قديمة"}] النشرة فيها ${data.totalPages} صفحة. استُخرج ${data.extracted} عرض من الصفحة الأولى.`
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "خطأ غير متوقع");
@@ -251,6 +253,16 @@ export default function OffersTab() {
                     {progress.done} / {progress.total} صفحة
                   </p>
                 </div>
+              )}
+              {raw && (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-gray-500">
+                    عرض رد النموذج الخام
+                  </summary>
+                  <pre dir="ltr" className="mt-1 p-2 bg-gray-50 rounded overflow-x-auto whitespace-pre-wrap text-[10px] max-h-48">
+                    {raw}
+                  </pre>
+                </details>
               )}
               {preview && preview.length > 0 && (
                 <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto">
