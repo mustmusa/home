@@ -115,6 +115,7 @@ export async function POST(req: NextRequest) {
   const message = await client.messages.create({
     model: "claude-opus-5",
     max_tokens: 16000,
+    output_config: { effort: "low" },
     messages: [
       {
         role: "user",
