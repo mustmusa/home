@@ -27,7 +27,6 @@ export default function OffersTab() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
-  const [scraping, setScraping] = useState(false);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -116,35 +115,6 @@ export default function OffersTab() {
     }
   }
 
-  async function scrapeWebOffers(source: string) {
-    setScraping(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const res = await fetch("/api/offers/scrape", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source, mall: selectedMall }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "فشل التحديث");
-        return;
-      }
-
-      setSuccess(`تم استخراج ${data.extracted} عرض من الويب بنجاح ✅`);
-      setTimeout(() => {
-        loadOffers();
-        setSuccess(null);
-      }, 2000);
-    } catch (e) {
-      setError("خطأ في جلب البيانات من الويب");
-    } finally {
-      setScraping(false);
-    }
-  }
 
   const totalOffers = Object.values(offers).reduce((sum, arr) => sum + arr.length, 0);
 
@@ -181,14 +151,6 @@ export default function OffersTab() {
                   className="hidden"
                 />
               </label>
-
-              <button
-                onClick={() => scrapeWebOffers("d4donline")}
-                disabled={scraping}
-                className="w-full px-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-400 text-sm"
-              >
-                {scraping ? "جارٍ التحديث من الويب..." : "🌐 تحديث من موقع العروض"}
-              </button>
             </div>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
