@@ -27,6 +27,7 @@ export default function OffersTab() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
+  const [scraping, setScraping] = useState(false);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -115,6 +116,36 @@ export default function OffersTab() {
     }
   }
 
+  async function scrapeWebOffers(source: string) {
+    setScraping(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch("/api/offers/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source, mall: selectedMall }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "فشل التحديث");
+        return;
+      }
+
+      setSuccess(`تم استخراج ${data.extracted} عرض من الويب بنجاح ✅`);
+      setTimeout(() => {
+        loadOffers();
+        setSuccess(null);
+      }, 2000);
+    } catch (e) {
+      setError("خطأ في جلب البيانات من الويب");
+    } finally {
+      setScraping(false);
+    }
+  }
+
   if (loading) return <p className="text-gray-400 text-sm">جارٍ التحميل...</p>;
 
   const totalOffers = Object.values(offers).reduce((sum, arr) => sum + arr.length, 0);
@@ -139,18 +170,28 @@ export default function OffersTab() {
               ))}
             </select>
 
-            <label className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-primary rounded-lg cursor-pointer hover:bg-blue-50">
-              <span className="text-sm font-medium text-primary">
-                {uploading ? "جارٍ الرفع..." : "📁 اضغط لرفع صورة إعلان"}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                disabled={uploading}
-                className="hidden"
-              />
-            </label>
+            <div className="space-y-3">
+              <label className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-primary rounded-lg cursor-pointer hover:bg-blue-50">
+                <span className="text-sm font-medium text-primary">
+                  {uploading ? "جارٍ الرفع..." : "📁 اضغط لرفع صورة إعلان"}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                  className="hidden"
+                />
+              </label>
+
+              <button
+                onClick={() => scrapeWebOffers("d4donline")}
+                disabled={scraping}
+                className="w-full px-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-gray-400 text-sm"
+              >
+                {scraping ? "جارٍ التحديث من الويب..." : "🌐 تحديث من موقع العروض"}
+              </button>
+            </div>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
             {success && <p className="text-green-600 text-sm">{success}</p>}
