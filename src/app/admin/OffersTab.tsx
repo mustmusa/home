@@ -256,8 +256,15 @@ export default function OffersTab() {
                 <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto">
                   {preview.map((o, i) => (
                     <div key={i} className="p-2 flex justify-between gap-2 text-xs">
-                      <span className="flex-1">{o.item_name}</span>
-                      <span className="font-bold text-green-600">{o.offer_price} ر.س</span>
+                      <div className="flex-1">
+                        <p>{o.item_name}</p>
+                        {o.description && (
+                          <p className="text-gray-500 mt-0.5">{o.description}</p>
+                        )}
+                      </div>
+                      <span className="font-bold text-green-600 whitespace-nowrap">
+                        {o.offer_price} ر.س
+                      </span>
                     </div>
                   ))}
                 </div>
