@@ -27,6 +27,10 @@ export default function OffersTab() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
+  const [d4dUrl, setD4dUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [preview, setPreview] = useState<Offer[] | null>(null);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -116,6 +120,60 @@ export default function OffersTab() {
   }
 
 
+  async function callSync(body: Record<string, unknown>) {
+    const res = await fetch("/api/offers/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: d4dUrl, mall: selectedMall, ...body }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "فشل الطلب");
+    return data;
+  }
+
+  async function testOnePage() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    setPreview(null);
+    try {
+      const data = await callSync({ dryRun: true });
+      setPreview(data.offers || []);
+      setSuccess(
+        `النشرة فيها ${data.totalPages} صفحة. استُخرج ${data.extracted} عرض من الصفحة الأولى.`
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncAll() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    setPreview(null);
+    let offset = 0;
+    let inserted = 0;
+    try {
+      for (;;) {
+        const data = await callSync({ offset });
+        inserted += data.inserted ?? 0;
+        setProgress({ done: data.processedPages, total: data.totalPages });
+        if (data.done) break;
+        offset = data.nextOffset;
+      }
+      setSuccess(`تم. حُفظ ${inserted} عرض من ${selectedMall}.`);
+      loadOffers();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
   const totalOffers = Object.values(offers).reduce((sum, arr) => sum + arr.length, 0);
 
   return (
@@ -151,6 +209,59 @@ export default function OffersTab() {
                   className="hidden"
                 />
               </label>
+            </div>
+
+            <div className="border-t border-gray-200 pt-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-600">
+                🌐 جلب تلقائي من D4D
+              </p>
+              <input
+                type="url"
+                dir="ltr"
+                value={d4dUrl}
+                onChange={(e) => setD4dUrl(e.target.value)}
+                placeholder="https://d4donline.com/en/saudi-arabia/riyadh/offers/..."
+                className="input w-full text-xs"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={testOnePage}
+                  disabled={busy || !d4dUrl}
+                  className="flex-1 px-3 py-2 border border-primary text-primary rounded-lg text-xs font-medium disabled:opacity-40"
+                >
+                  اختبار صفحة واحدة
+                </button>
+                <button
+                  onClick={syncAll}
+                  disabled={busy || !d4dUrl}
+                  className="flex-1 px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium disabled:opacity-40"
+                >
+                  جلب كل الصفحات
+                </button>
+              </div>
+              {progress && (
+                <div className="space-y-1">
+                  <div className="h-2 bg-gray-200 rounded overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{ width: `${(progress.done / progress.total) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 text-center">
+                    {progress.done} / {progress.total} صفحة
+                  </p>
+                </div>
+              )}
+              {preview && preview.length > 0 && (
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-56 overflow-y-auto">
+                  {preview.map((o, i) => (
+                    <div key={i} className="p-2 flex justify-between gap-2 text-xs">
+                      <span className="flex-1">{o.item_name}</span>
+                      <span className="font-bold text-green-600">{o.offer_price} ر.س</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {error && <p className="text-red-600 text-sm">{error}</p>}
