@@ -67,7 +67,7 @@ const PROMPT = `استخرج كل عرض ظاهر في صور نشرة العر�
 أعد مصفوفة JSON فقط، بلا أي نص آخر:
 [{"item_name":"...","offer_price":0,"original_price":null,"discount_percent":null,"description":null}]`;
 
-export async function POST(req: NextRequest) {
+async function handle(req: NextRequest) {
   const session = await getSession();
   if (!session || session.role !== "admin") {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
@@ -221,4 +221,27 @@ export async function POST(req: NextRequest) {
     inserted,
     usage: message.usage,
   });
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    return await handle(req);
+  } catch (e) {
+    // Without this the route answers an unhandled throw with an opaque 500
+    // and a non-JSON body, which tells the caller nothing.
+    if (e instanceof Anthropic.APIError) {
+      return NextResponse.json(
+        { error: `خطأ من Claude (${e.status}): ${e.message}`, kind: "anthropic" },
+        { status: 502 }
+      );
+    }
+    return NextResponse.json(
+      {
+        error: e instanceof Error ? e.message : String(e),
+        kind: "server",
+        stack: e instanceof Error ? e.stack?.split("\n").slice(0, 4).join(" | ") : undefined,
+      },
+      { status: 500 }
+    );
+  }
 }
