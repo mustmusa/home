@@ -72,12 +72,32 @@ export async function GET(req: NextRequest) {
 
   const priceHits = (body.match(/\d+[.,]\d{2}\s*(?:ر\.?س|SAR|SR)|(?:ر\.?س|SAR|SR)\s*\d+/gi) || []).slice(0, 25);
 
+  const title = (body.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]?.trim() || null;
+
+  const isBotChallenge =
+    res.status === 429 ||
+    res.status === 403 ||
+    /security checkpoint|just a moment|checking your browser|attention required|cf-browser-verification/i.test(
+      (title || "") + body.slice(0, 3000)
+    );
+
+  const imgSrcs = [...new Set(
+    [...body.matchAll(/<img[^>]+(?:src|data-src|data-lazy-src)=["']([^"']{6,300})["']/gi)].map((m) => m[1])
+  )];
+  const ogImages = [...new Set(
+    [...body.matchAll(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/gi)].map((m) => m[1])
+  )];
+  const bigImages = imgSrcs
+    .filter((u) => /\.(jpe?g|png|webp)(\?|$)/i.test(u) && !/logo|icon|sprite|avatar|flag/i.test(u))
+    .slice(0, 30);
+
   return NextResponse.json({
     finalUrl: res.url,
     status: res.status,
+    title,
+    isBotChallenge,
     contentType: res.headers.get("content-type"),
     htmlLength: body.length,
-    looksJsRendered: body.length > 0 && priceHits.length === 0 && jsonLd.length === 0,
     jsonLdCount: jsonLd.length,
     jsonLdSamples: jsonLd.slice(0, 3),
     hasNextData: !!nextData,
@@ -86,7 +106,9 @@ export async function GET(req: NextRequest) {
     absApi,
     priceHitsFound: priceHits.length,
     priceHits,
-    headSample: body.slice(0, 600),
-    midSample: body.slice(Math.floor(body.length / 2), Math.floor(body.length / 2) + 1500),
+    imageCount: imgSrcs.length,
+    ogImages,
+    bigImages,
+    headSample: body.slice(0, 400),
   });
 }
