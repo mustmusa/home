@@ -248,9 +248,12 @@ async function handle(req: NextRequest) {
   const db = supabaseServer();
   if (offset === 0) {
     const base = db.from("offers").delete().eq("mall", mall).eq("source", "scrape");
-    // Replace only this campaign, so a mall's concurrent flyers accumulate.
-    // A hand-entered url carries no campaign, so it falls back to the mall.
-    await (campaignId ? base.eq("campaign_id", campaignId) : base);
+    // Replace this campaign only, so a mall's concurrent flyers accumulate.
+    // Rows predating the campaign_id column have none and would otherwise
+    // never be cleared, leaving a duplicate of every item.
+    await (campaignId
+      ? base.or(`campaign_id.eq.${campaignId},campaign_id.is.null`)
+      : base);
 
     // Flyers are weekly; anything this old belongs to a campaign that ended.
     const cutoff = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();

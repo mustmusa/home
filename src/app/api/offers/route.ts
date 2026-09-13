@@ -10,17 +10,21 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const mall = searchParams.get("mall");
-  const limit = Number(searchParams.get("limit") ?? 1000);
+  const limit = Number(searchParams.get("limit") ?? 5000);
 
   try {
     const db = supabaseServer();
-    let query = db.from("offers").select("*").order("created_at", { ascending: false }).limit(limit);
+    let query = db
+      .from("offers")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .limit(limit);
 
     if (mall) {
       query = query.eq("mall", mall);
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -36,7 +40,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      total: data?.length || 0,
+      total: count ?? data?.length ?? 0,
+      shown: data?.length ?? 0,
       malls: Object.keys(grouped),
       offers: grouped,
     });

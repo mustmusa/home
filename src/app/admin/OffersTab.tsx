@@ -38,6 +38,7 @@ export default function OffersTab() {
   const [cmp, setCmp] = useState<any | null>(null);
   const [campaigns, setCampaigns] = useState<Record<string, Campaign[]>>({});
   const [discovering, setDiscovering] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -77,6 +78,7 @@ export default function OffersTab() {
       const res = await fetch("/api/offers");
       const data = await res.json();
       setOffers(data.offers || {});
+      setTotalCount(data.total ?? 0);
     } catch (e) {
       setError("خطأ في تحميل العروض");
     } finally {
@@ -228,7 +230,7 @@ export default function OffersTab() {
     }
   }
 
-  const totalOffers = Object.values(offers).reduce((sum, arr) => sum + arr.length, 0);
+  const totalOffers = totalCount;
 
   return (
     <div className="flex flex-col gap-4">
