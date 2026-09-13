@@ -3,7 +3,14 @@ import { Anthropic } from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
 
-const client = new Anthropic();
+let cached: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (cached) return cached;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("متغير البيئة ANTHROPIC_API_KEY غير مضبوط على الخادم");
+  cached = new Anthropic({ apiKey });
+  return cached;
+}
 
 type ExtractedOffer = {
   item_name: string;
@@ -52,7 +59,7 @@ export async function POST(req: NextRequest) {
     }
 
     // استخدام Claude لاستخراج العروض من الصورة
-    const response = await client.messages.create({
+    const response = await getClient().messages.create({
       model: "claude-opus-5",
       max_tokens: 2000,
       messages: [

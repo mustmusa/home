@@ -5,7 +5,14 @@ import { getSession } from "@/lib/session";
 
 export const maxDuration = 60;
 
-const client = new Anthropic();
+let cached: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (cached) return cached;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("متغير البيئة ANTHROPIC_API_KEY غير مضبوط على الخادم");
+  cached = new Anthropic({ apiKey });
+  return cached;
+}
 
 const MALLS = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
@@ -115,7 +122,7 @@ async function handle(req: NextRequest) {
     return NextResponse.json({ done: true, totalPages: pages.length, offset });
   }
 
-  const message = await client.messages.create({
+  const message = await getClient().messages.create({
     model: "claude-opus-5",
     max_tokens: 16000,
     output_config: { effort: "low" },
@@ -229,9 +236,10 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     // Without this the route answers an unhandled throw with an opaque 500
     // and a non-JSON body, which tells the caller nothing.
-    if (e instanceof Anthropic.APIError) {
+    const status = (e as { status?: number })?.status;
+    if (typeof status === "number") {
       return NextResponse.json(
-        { error: `خطأ من Claude (${e.status}): ${e.message}`, kind: "anthropic" },
+        { error: `خطأ من Claude (${status}): ${(e as Error).message}`, kind: "anthropic" },
         { status: 502 }
       );
     }
@@ -244,4 +252,24 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET() {
+  const session = await getSession();
+  if (!session || session.role !== "admin") {
+    return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+  }
+  let clientOk: string;
+  try {
+    getClient();
+    clientOk = "ok";
+  } catch (e) {
+    clientOk = e instanceof Error ? e.message : String(e);
+  }
+  return NextResponse.json({
+    routeLoaded: true,
+    hasApiKey: !!process.env.ANTHROPIC_API_KEY,
+    keyLength: process.env.ANTHROPIC_API_KEY?.length ?? 0,
+    clientInit: clientOk,
+  });
 }
