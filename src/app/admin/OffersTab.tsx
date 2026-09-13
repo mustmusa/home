@@ -146,8 +146,6 @@ export default function OffersTab() {
     }
   }
 
-  if (loading) return <p className="text-gray-400 text-sm">جارٍ التحميل...</p>;
-
   const totalOffers = Object.values(offers).reduce((sum, arr) => sum + arr.length, 0);
 
   return (
@@ -217,58 +215,63 @@ export default function OffersTab() {
       {/* Offers by Mall */}
       <section className="card">
         <h2 className="font-bold mb-4">🛍️ العروض حسب المول</h2>
-        <div className="space-y-4">
-          {Object.entries(offers).map(([mall, mallOffers]) => (
-            <div key={mall} className="border border-gray-200 rounded-lg overflow-hidden">
-              {/* Mall Header */}
-              <div className="bg-gray-50 p-3 border-b border-gray-200">
-                <p className="font-semibold text-sm">{mall}</p>
-                <p className="text-xs text-gray-500 mt-1">{mallOffers.length} عرض</p>
-              </div>
-
-              {/* Offers List */}
-              <div className="divide-y divide-gray-100">
-                {mallOffers.map((offer) => (
-                  <div key={offer.id} className="p-3 hover:bg-gray-50">
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{offer.item_name}</p>
-                        {offer.description && (
-                          <p className="text-xs text-gray-500 mt-1">{offer.description}</p>
-                        )}
-                      </div>
-                      {userRole === "admin" && (
-                        <button
-                          onClick={() => deleteOffer(offer.id)}
-                          className="text-red-600 hover:text-red-800 text-xs font-medium"
-                        >
-                          حذف
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2 items-center text-sm">
-                      {offer.original_price && (
-                        <span className="text-gray-500 line-through">
-                          {offer.original_price} ر.س
-                        </span>
-                      )}
-                      <span className="font-bold text-green-600">{offer.offer_price} ر.س</span>
-                      {offer.discount_percent && (
-                        <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">
-                          -{offer.discount_percent}%
-                        </span>
-                      )}
-                    </div>
+        {loading ? (
+          <p className="text-gray-400 text-sm text-center py-8">جارٍ تحميل العروض...</p>
+        ) : (
+          <>
+            <div className="space-y-4">
+              {Object.entries(offers).map(([mall, mallOffers]) => (
+                <div key={mall} className="border border-gray-200 rounded-lg overflow-hidden">
+                  {/* Mall Header */}
+                  <div className="bg-gray-50 p-3 border-b border-gray-200">
+                    <p className="font-semibold text-sm">{mall}</p>
+                    <p className="text-xs text-gray-500 mt-1">{mallOffers.length} عرض</p>
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
 
-        {totalOffers === 0 && (
-          <p className="text-center text-gray-400 py-8">لا توجد عروض حالياً</p>
+                  {/* Offers List */}
+                  <div className="divide-y divide-gray-100">
+                    {mallOffers.map((offer) => (
+                      <div key={offer.id} className="p-3 hover:bg-gray-50">
+                        <div className="flex justify-between items-start gap-2 mb-2">
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{offer.item_name}</p>
+                            {offer.description && (
+                              <p className="text-xs text-gray-500 mt-1">{offer.description}</p>
+                            )}
+                          </div>
+                          {userRole === "admin" && (
+                            <button
+                              onClick={() => deleteOffer(offer.id)}
+                              className="text-red-600 hover:text-red-800 text-xs font-medium"
+                            >
+                              حذف
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2 items-center text-sm">
+                          {offer.original_price && (
+                            <span className="text-gray-500 line-through">
+                              {offer.original_price} ر.س
+                            </span>
+                          )}
+                          <span className="font-bold text-green-600">{offer.offer_price} ر.س</span>
+                          {offer.discount_percent && (
+                            <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                              -{offer.discount_percent}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {totalOffers === 0 && (
+              <p className="text-center text-gray-400 py-8">لا توجد عروض حالياً</p>
+            )}
+          </>
         )}
       </section>
     </div>
