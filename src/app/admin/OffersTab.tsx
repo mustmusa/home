@@ -19,6 +19,8 @@ type OffersData = {
 
 type UserRole = "admin" | "warehouse" | "user" | null;
 
+type Campaign = { url: string; title: string; campaignId: string };
+
 export default function OffersTab() {
   const [offers, setOffers] = useState<OffersData>({});
   const [loading, setLoading] = useState(true);
@@ -34,13 +36,30 @@ export default function OffersTab() {
   const [raw, setRaw] = useState<string | null>(null);
   const [failedAt, setFailedAt] = useState<number | null>(null);
   const [cmp, setCmp] = useState<any | null>(null);
+  const [campaigns, setCampaigns] = useState<Record<string, Campaign[]>>({});
+  const [discovering, setDiscovering] = useState(false);
 
   const malls = ["بندا", "الجزيرة", "الدانوب", "أسواق التميمي", "اللولو"];
 
   useEffect(() => {
     loadOffers();
     fetchUserRole();
+    discoverCampaigns();
   }, []);
+
+  // Campaign ids rotate every week, so the links are looked up, never stored.
+  async function discoverCampaigns() {
+    setDiscovering(true);
+    try {
+      const res = await fetch("/api/offers/discover");
+      const data = await res.json();
+      if (res.ok) setCampaigns(data.malls || {});
+    } catch {
+      // manual URL entry still works
+    } finally {
+      setDiscovering(false);
+    }
+  }
 
   async function fetchUserRole() {
     try {
@@ -221,7 +240,12 @@ export default function OffersTab() {
           <div className="space-y-3">
             <select
               value={selectedMall}
-              onChange={(e) => setSelectedMall(e.target.value)}
+              onChange={(e) => {
+                setSelectedMall(e.target.value);
+                setD4dUrl("");
+                setCmp(null);
+                setPreview(null);
+              }}
               className="input w-full"
             >
               {malls.map((m) => (
@@ -250,14 +274,42 @@ export default function OffersTab() {
               <p className="text-xs font-semibold text-gray-600">
                 🌐 جلب تلقائي من D4D
               </p>
-              <input
-                type="url"
-                dir="ltr"
+              <select
                 value={d4dUrl}
                 onChange={(e) => setD4dUrl(e.target.value)}
-                placeholder="https://d4donline.com/en/saudi-arabia/riyadh/offers/..."
                 className="input w-full text-xs"
-              />
+                disabled={busy}
+              >
+                <option value="">
+                  {discovering
+                    ? "جارٍ البحث عن نشرات هذا المول..."
+                    : (campaigns[selectedMall]?.length ?? 0) === 0
+                      ? "لا توجد نشرة منشورة حالياً لهذا المول"
+                      : "اختر النشرة"}
+                </option>
+                {(campaigns[selectedMall] ?? []).map((c) => (
+                  <option key={c.campaignId} value={c.url}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={discoverCampaigns}
+                  disabled={busy || discovering}
+                  className="text-[10px] text-primary underline disabled:opacity-40"
+                >
+                  تحديث قائمة النشرات
+                </button>
+                <input
+                  type="url"
+                  dir="ltr"
+                  value={d4dUrl}
+                  onChange={(e) => setD4dUrl(e.target.value)}
+                  placeholder="أو الصق رابطاً يدوياً"
+                  className="input flex-1 text-[10px]"
+                />
+              </div>
               <button
                 onClick={compareModels}
                 disabled={busy || !d4dUrl}
