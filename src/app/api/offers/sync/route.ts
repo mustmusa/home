@@ -182,6 +182,7 @@ async function handle(req: NextRequest) {
   if (parsed.hostname.replace(/^www\./, "") !== "d4donline.com") {
     return NextResponse.json({ error: "الرابط يجب أن يكون من d4donline.com" }, { status: 400 });
   }
+  const campaignId = parsed.pathname.match(/\/offers\/[^/]+\/(\d+)\//)?.[1] ?? null;
 
   const pageRes = await fetch(parsed.toString(), {
     headers: {
@@ -246,7 +247,19 @@ async function handle(req: NextRequest) {
 
   const db = supabaseServer();
   if (offset === 0) {
-    await db.from("offers").delete().eq("mall", mall).eq("source", "scrape");
+    const base = db.from("offers").delete().eq("mall", mall).eq("source", "scrape");
+    // Replace only this campaign, so a mall's concurrent flyers accumulate.
+    // A hand-entered url carries no campaign, so it falls back to the mall.
+    await (campaignId ? base.eq("campaign_id", campaignId) : base);
+
+    // Flyers are weekly; anything this old belongs to a campaign that ended.
+    const cutoff = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+    await db
+      .from("offers")
+      .delete()
+      .eq("mall", mall)
+      .eq("source", "scrape")
+      .lt("created_at", cutoff);
   }
 
   let inserted = 0;
@@ -257,6 +270,7 @@ async function handle(req: NextRequest) {
       .insert(
         result.offers.map((o) => ({
           mall,
+          campaign_id: campaignId,
           item_name: o.item_name.trim(),
           offer_price: positive(o.offer_price)!,
           original_price: positive(o.original_price),
@@ -278,6 +292,7 @@ async function handle(req: NextRequest) {
   return NextResponse.json({
     mall,
     model,
+    campaignId,
     totalPages: pages.length,
     processedPages: nextOffset,
     nextOffset,
