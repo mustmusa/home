@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import MallBasket from "./MallBasket";
 import type { House, PurchaseRequest } from "@/lib/types";
 
 type PurchaseLineItem = {
@@ -138,6 +139,8 @@ export default function PendingRequestsTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      <MallBasket />
+
       {/* إحصائيات */}
       <section className="card">
         <h2 className="font-bold mb-3">📊 ملخص الطلبات المعلقة</h2>
