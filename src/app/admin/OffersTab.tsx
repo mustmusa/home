@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import OffersBrowser from "./OffersBrowser";
+import ShoppingSuggestions from "./ShoppingSuggestions";
 
 type Offer = {
   id: string;
@@ -293,6 +294,8 @@ export default function OffersTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      <ShoppingSuggestions />
+
       {/* Upload Section - Only for Admin */}
       {userRole === "admin" && (
         <section className="card">
