@@ -170,13 +170,9 @@ export default function WifeDashboard() {
       const res = await fetch("/api/requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          item_name: newRequestText.trim(),
-          quantity_requested: 1,
-          quantity_text: newRequestText.trim(),
-          house_id: house.id,
-          notes: "",
-        }),
+        // The route parses this raw message into one request per item and
+        // takes the house and author from the session.
+        body: JSON.stringify({ text: newRequestText.trim() }),
       });
 
       const data = await res.json();
