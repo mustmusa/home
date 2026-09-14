@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
+import { CATEGORIES } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -25,6 +26,7 @@ type ModelId = keyof typeof MODELS;
 const DEFAULT_MODEL: ModelId = "claude-sonnet-5";
 
 type Extracted = {
+  category?: string | null;
   item_name: string;
   original_price?: number | null;
   offer_price: number;
@@ -71,6 +73,7 @@ const PROMPT = `استخرج كل عرض ظاهر في صور نشرة العر�
 - original_price: السعر قبل الخصم إن ظهر، وإلا null
 - discount_percent: نسبة الخصم إن ظهرت، وإلا null
 - description: الحجم أو الوزن أو عدد الحبات أو الوحدة كما هو مكتوب (مثل: "كرتون ١٠ حبات"، "١ كجم"، "حبة")
+- category: صنّف المنتج بواحدة من هذه القيم حرفياً: ${CATEGORIES.join(" | ")}
 
 قواعد صارمة:
 - تجاهل أي منتج لا يظهر له سعر واضح ومقروء
@@ -82,7 +85,7 @@ const PROMPT = `استخرج كل عرض ظاهر في صور نشرة العر�
 - لا تترك منتجين بنفس item_name تماماً وسعرين مختلفين: ميّزهما بالحجم
 
 أعد مصفوفة JSON فقط، بلا أي نص آخر:
-[{"item_name":"...","offer_price":0,"original_price":null,"discount_percent":null,"description":null}]`;
+[{"item_name":"...","offer_price":0,"original_price":null,"discount_percent":null,"description":null,"category":"بقالة جافة"}]`;
 
 const positive = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
@@ -299,6 +302,7 @@ async function handle(req: NextRequest) {
           original_price: positive(o.original_price),
           discount_percent: positive(o.discount_percent),
           description: o.description ? String(o.description).trim() : null,
+          category: CATEGORIES.includes(o.category as any) ? o.category : null,
           source: "scrape",
           created_at: now,
           updated_at: now,
