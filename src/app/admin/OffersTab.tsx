@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import OffersBrowser from "./OffersBrowser";
 
 type Offer = {
   id: string;
@@ -512,6 +513,8 @@ export default function OffersTab() {
           </div>
         </div>
       </section>
+
+      <OffersBrowser isAdmin={userRole === "admin"} />
 
       {/* Offers by Mall */}
       <section className="card">
