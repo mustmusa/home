@@ -16,13 +16,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.name != null) patch.name = String(body.name).trim();
-  if (body.unit != null) patch.unit = String(body.unit).trim() || null;
-  if (body.unit_cost != null) patch.unit_cost = Number(body.unit_cost);
-  if (body.notes != null) patch.notes = String(body.notes).trim() || null;
-  // Tested with !== undefined rather than != null so clearing a category saves
-  // too; the client sends null for "no category".
+  // These are tested against undefined, not null, so emptying a field saves the
+  // clearance instead of silently keeping the old value. Each still guards its
+  // own conversion: Number(null) is 0 and String(null) is "null", either of
+  // which would store a wrong value rather than an empty one.
+  if (body.unit !== undefined) {
+    patch.unit = body.unit ? String(body.unit).trim() || null : null;
+  }
+  if (body.unit_cost !== undefined) {
+    const cost = Number(body.unit_cost);
+    patch.unit_cost =
+      body.unit_cost === null || body.unit_cost === "" || Number.isNaN(cost) ? null : cost;
+  }
+  if (body.notes !== undefined) {
+    patch.notes = body.notes ? String(body.notes).trim() || null : null;
+  }
   if (body.category !== undefined) {
-    patch.category = body.category ? String(body.category).trim() : null;
+    patch.category = body.category ? String(body.category).trim() || null : null;
   }
 
   const db = supabaseServer();
