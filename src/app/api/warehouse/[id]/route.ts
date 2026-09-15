@@ -66,7 +66,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
-  if (!session || session.role !== "admin") {
+  if (!session || !canManageWarehouse(session.role)) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
   const { id } = await params;
