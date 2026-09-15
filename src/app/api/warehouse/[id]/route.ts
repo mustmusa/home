@@ -19,6 +19,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.unit != null) patch.unit = String(body.unit).trim() || null;
   if (body.unit_cost != null) patch.unit_cost = Number(body.unit_cost);
   if (body.notes != null) patch.notes = String(body.notes).trim() || null;
+  // Tested with !== undefined rather than != null so clearing a category saves
+  // too; the client sends null for "no category".
+  if (body.category !== undefined) {
+    patch.category = body.category ? String(body.category).trim() : null;
+  }
 
   const db = supabaseServer();
 
