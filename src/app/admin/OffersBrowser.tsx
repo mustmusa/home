@@ -34,10 +34,20 @@ export default function OffersBrowser({ isAdmin }: { isAdmin: boolean }) {
   const [mall, setMall] = useState("");
   const [labelling, setLabelling] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [smart, setSmart] = useState<{ understood: string; offers: Row[]; total: number } | null>(null);
+  const [thinking, setThinking] = useState(false);
+
+  // Typing filters against the database directly — instant and free.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQ(q), 300);
+    return () => clearTimeout(id);
+  }, [q]);
 
   useEffect(() => {
     load();
-  }, [category, band, mall]);
+  }, [category, band, mall, debouncedQ]);
 
   async function load() {
     setLoading(true);
@@ -47,6 +57,7 @@ export default function OffersBrowser({ isAdmin }: { isAdmin: boolean }) {
       if (mall) p.set("mall", mall);
       if (BANDS[band].min) p.set("minDiscount", BANDS[band].min);
       if (BANDS[band].max) p.set("maxDiscount", BANDS[band].max);
+      if (debouncedQ.trim()) p.set("q", debouncedQ.trim());
 
       const res = await fetch(`/api/offers/browse?${p}`);
       const data = await res.json();
@@ -54,6 +65,26 @@ export default function OffersBrowser({ isAdmin }: { isAdmin: boolean }) {
       setTotal(data.total ?? 0);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function smartSearch() {
+    if (!q.trim()) return;
+    setThinking(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/offers/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "تعذّر الفهم");
+      setSmart({ understood: data.understood, offers: data.offers, total: data.total });
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setThinking(false);
     }
   }
 
@@ -79,11 +110,45 @@ export default function OffersBrowser({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  const visible = smart ? smart.offers : rows;
   const uncategorised = rows.filter((r) => !r.category).length;
 
   return (
     <section className="card">
       <h2 className="font-bold mb-3">🔎 تصفّح العروض</h2>
+
+      <div className="mb-3 space-y-2">
+        <input
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setSmart(null);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && smartSearch()}
+          placeholder="ابحث… أو اكتب طلبك بأي أسلوب: «أرخص منظفات تحت ٢٠ ريال»"
+          className="input w-full text-xs"
+        />
+        <button
+          onClick={smartSearch}
+          disabled={thinking || !q.trim()}
+          className="w-full px-3 py-2 bg-violet-600 text-white rounded-lg text-xs font-medium disabled:opacity-40"
+        >
+          {thinking ? "جارٍ الفهم..." : "🤖 افهم طلبي وابحث"}
+        </button>
+        {smart && (
+          <div className="flex items-start justify-between gap-2 bg-violet-50 border border-violet-200 rounded-lg p-2">
+            <p className="text-xs text-violet-900 flex-1">
+              {smart.understood} — {smart.total} نتيجة
+            </p>
+            <button
+              onClick={() => setSmart(null)}
+              className="text-xs text-violet-700 underline whitespace-nowrap"
+            >
+              إلغاء
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-2 mb-3">
         <select
@@ -137,7 +202,7 @@ export default function OffersBrowser({ isAdmin }: { isAdmin: boolean }) {
       {note && <p className="text-xs text-gray-600 mb-2">{note}</p>}
 
       <p className="text-xs text-gray-500 mb-2">
-        {loading ? "جارٍ التحميل..." : `${total} عرض مطابق${rows.length < total ? ` — يُعرض أعلى ${rows.length} خصماً` : ""}`}
+        {loading ? "جارٍ التحميل..." : smart ? `${visible.length} نتيجة من البحث الذكي` : `${total} عرض مطابق${rows.length < total ? ` — يُعرض أعلى ${rows.length} خصماً` : ""}`}
       </p>
 
       <div className="overflow-x-auto">
@@ -152,7 +217,7 @@ export default function OffersBrowser({ isAdmin }: { isAdmin: boolean }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {visible.map((r) => (
               <tr key={r.id} className="border-b border-gray-100">
                 <td className="py-2 pl-2">
                   <p className="font-medium">{r.item_name}</p>
@@ -178,7 +243,7 @@ export default function OffersBrowser({ isAdmin }: { isAdmin: boolean }) {
         </table>
       </div>
 
-      {!loading && rows.length === 0 && (
+      {!loading && visible.length === 0 && (
         <p className="text-center text-gray-400 py-6">لا توجد عروض بهذه المواصفات</p>
       )}
     </section>
