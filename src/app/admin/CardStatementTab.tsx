@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { CATEGORIES } from "@/lib/types";
 
-type Suggestion = { id: string; store_name: string; total_amount: number; purchased_at: string };
+type Purchase = { id: string; store_name: string; total_amount: number; purchased_at: string };
+type House = { id: string; name: string };
 
 type Txn = {
   id: string;
@@ -19,10 +20,8 @@ type Txn = {
   target_kind: "house" | "personal" | "warehouse" | "other" | null;
   target_house_id: string | null;
   target_label: string | null;
-  suggestions: Suggestion[];
+  suggestions: Purchase[];
 };
-
-type House = { id: string; name: string };
 
 type Summary = {
   count: number;
@@ -38,23 +37,58 @@ const BUILT_IN = [...CATEGORIES.filter((c) => c !== "أخرى"), ...EXTRA_CATEGO
 const NEW_CATEGORY = "__new__";
 const NEW_TARGET = "__new_target__";
 
-function thisMonth() {
-  return new Date().toISOString().slice(0, 7);
+/** مكتملة = مرتبطة بفاتورة، أو لها تصنيف وجهة صرف معاً */
+function isSettled(t: Txn) {
+  return Boolean(t.purchase_id) || Boolean(t.category && t.target_kind);
+}
+
+function Bars({
+  title,
+  data,
+  total,
+  tint,
+}: {
+  title: string;
+  data: Record<string, number>;
+  total: number;
+  tint: string;
+}) {
+  const rows = Object.entries(data).sort((a, b) => b[1] - a[1]);
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-600 mb-1">{title}</p>
+      <div className="space-y-1">
+        {rows.map(([label, amount]) => (
+          <div key={label} className="flex items-center gap-2 text-xs">
+            <span className="w-32 shrink-0 truncate">{label}</span>
+            <div className="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+              <div
+                className={`h-full ${label.startsWith("غير") || label.startsWith("بلا") ? "bg-gray-400" : tint}`}
+                style={{ width: `${total > 0 ? (amount / total) * 100 : 0}%` }}
+              />
+            </div>
+            <span className="w-20 text-left font-semibold tabular-nums">{amount.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function CardStatementTab() {
   const [txns, setTxns] = useState<Txn[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [month, setMonth] = useState(thisMonth());
+  const [houses, setHouses] = useState<House[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [usedCategories, setUsedCategories] = useState<string[]>([]);
+  const [usedTargets, setUsedTargets] = useState<string[]>([]);
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [onlyUnlinked, setOnlyUnlinked] = useState(false);
-  const [used, setUsed] = useState<string[]>([]);
-  const [houses, setHouses] = useState<House[]>([]);
-  const [usedTargets, setUsedTargets] = useState<string[]>([]);
-  const [allPurchases, setAllPurchases] = useState<Suggestion[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,10 +98,10 @@ export default function CardStatementTab() {
       if (!res.ok) throw new Error(data.error || "تعذّر التحميل");
       setTxns(data.transactions ?? []);
       setSummary(data.summary ?? null);
-      setUsed(data.usedCategories ?? []);
       setHouses(data.houses ?? []);
+      setPurchases(data.purchases ?? []);
+      setUsedCategories(data.usedCategories ?? []);
       setUsedTargets(data.usedTargets ?? []);
-      setAllPurchases(data.purchases ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "خطأ غير متوقع");
     } finally {
@@ -93,7 +127,7 @@ export default function CardStatementTab() {
       if (!res.ok) throw new Error(data.error || "فشل الاستيراد");
       setMsg(
         `قرأ ${data.read} عملية — أضاف ${data.added}، و${data.alreadyKnown} كانت موجودة` +
-          (data.staleRemoved ? `، وأزال ${data.staleRemoved} تفويضاً معلّقاً انتهى` : "")
+          (data.staleRemoved ? `، وأزال ${data.staleRemoved} تفويضاً انتهى` : "")
       );
       e.target.value = "";
       load();
@@ -105,27 +139,6 @@ export default function CardStatementTab() {
   }
 
   async function patch(id: string, body: Record<string, unknown>) {
-    setTxns((list) =>
-      list.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              category: (body.category as string) ?? t.category,
-              note: body.note !== undefined ? (body.note as string) : t.note,
-              purchase_id:
-                body.purchaseId !== undefined ? (body.purchaseId as string) : t.purchase_id,
-              target_kind:
-                body.targetKind !== undefined ? (body.targetKind as Txn["target_kind"]) : t.target_kind,
-              target_house_id:
-                body.targetHouseId !== undefined
-                  ? (body.targetHouseId as string)
-                  : t.target_house_id,
-              target_label:
-                body.targetLabel !== undefined ? (body.targetLabel as string) : t.target_label,
-            }
-          : t
-      )
-    );
     const res = await fetch("/api/card", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -134,22 +147,177 @@ export default function CardStatementTab() {
     if (!res.ok) {
       const data = await res.json();
       setError(data.error || "فشل الحفظ");
-      load();
-    } else if (body.purchaseId) {
-      load();
     }
+    load();
   }
 
-  // A category the user invents stays in the list once any row carries it.
-  const categoryOptions = [...new Set([...BUILT_IN, ...used])];
-  const visible = onlyUnlinked ? txns.filter((t) => !t.purchase_id && t.amount < 0) : txns;
+  async function removeTxn(id: string, merchant: string) {
+    if (!confirm(`حذف عملية «${merchant}» من السجل؟`)) return;
+    const res = await fetch("/api/card", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      setError(data.error || "فشل الحذف");
+    }
+    load();
+  }
+
+  const categoryOptions = [...new Set([...BUILT_IN, ...usedCategories])];
+  const pending = txns.filter((t) => !isSettled(t));
+  const settled = txns.filter(isSettled);
+
+  function targetValue(t: Txn) {
+    if (t.target_kind === "house") return `house:${t.target_house_id ?? ""}`;
+    if (t.target_kind === "other") return `other:${t.target_label ?? ""}`;
+    return t.target_kind ?? "";
+  }
+
+  function targetText(t: Txn) {
+    if (t.target_kind === "house")
+      return houses.find((h) => h.id === t.target_house_id)?.name ?? "بيت";
+    if (t.target_kind === "personal") return "مصاريف شخصية";
+    if (t.target_kind === "warehouse") return "المخزن";
+    if (t.target_kind === "other") return t.target_label ?? "أخرى";
+    return null;
+  }
+
+  function onTarget(t: Txn, v: string) {
+    if (v === NEW_TARGET) {
+      const label = prompt("اسم بند المصاريف الجديد:")?.trim();
+      if (label) patch(t.id, { targetKind: "other", targetLabel: label });
+      return;
+    }
+    if (v.startsWith("house:")) patch(t.id, { targetKind: "house", targetHouseId: v.slice(6) });
+    else if (v.startsWith("other:")) patch(t.id, { targetKind: "other", targetLabel: v.slice(6) });
+    else patch(t.id, { targetKind: v || null });
+  }
+
+  function Editor({ t }: { t: Txn }) {
+    return (
+      <div className="space-y-2">
+        {t.suggestions.length > 0 && !t.purchase_id && (
+          <div className="space-y-1">
+            <p className="text-[10px] text-gray-500">فاتورة بنفس المبلغ والتاريخ:</p>
+            {t.suggestions.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => patch(t.id, { purchaseId: s.id })}
+                className="w-full text-xs border border-green-300 text-green-800 bg-green-50 rounded p-1.5 text-right"
+              >
+                اربط بـ {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
+              </button>
+            ))}
+          </div>
+        )}
+
+        <select
+          value={t.purchase_id ?? ""}
+          onChange={(e) => patch(t.id, { purchaseId: e.target.value || null })}
+          className="input text-xs w-full"
+        >
+          <option value="">🧾 بلا فاتورة</option>
+          {purchases.map((pu) => (
+            <option key={pu.id} value={pu.id}>
+              {pu.store_name} — {Number(pu.total_amount).toFixed(2)} ر.س — {pu.purchased_at.slice(0, 10)}
+            </option>
+          ))}
+        </select>
+
+        <div className="grid grid-cols-2 gap-2">
+          <select
+            value={t.category ?? ""}
+            onChange={(e) => {
+              if (e.target.value === NEW_CATEGORY) {
+                const name = prompt("اسم التصنيف الجديد:")?.trim();
+                if (name) patch(t.id, { category: name });
+                return;
+              }
+              patch(t.id, { category: e.target.value || null });
+            }}
+            className="input text-xs"
+          >
+            <option value="">اختر تصنيفاً</option>
+            {categoryOptions.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+            <option value={NEW_CATEGORY}>➕ تصنيف جديد…</option>
+          </select>
+
+          <select
+            value={targetValue(t)}
+            onChange={(e) => onTarget(t, e.target.value)}
+            className="input text-xs"
+          >
+            <option value="">جهة الصرف؟</option>
+            {houses.map((h) => (
+              <option key={h.id} value={`house:${h.id}`}>
+                🏠 {h.name}
+              </option>
+            ))}
+            <option value="personal">👤 مصاريف شخصية</option>
+            <option value="warehouse">📦 المخزن</option>
+            {usedTargets.map((lbl) => (
+              <option key={lbl} value={`other:${lbl}`}>
+                {lbl}
+              </option>
+            ))}
+            <option value={NEW_TARGET}>➕ بند جديد…</option>
+          </select>
+        </div>
+
+        <input
+          defaultValue={t.note ?? ""}
+          onBlur={(e) => {
+            if (e.target.value !== (t.note ?? "")) patch(t.id, { note: e.target.value });
+          }}
+          placeholder="ملاحظة"
+          className="input text-xs w-full"
+        />
+      </div>
+    );
+  }
+
+  function Head({ t }: { t: Txn }) {
+    return (
+      <div className="flex justify-between items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm truncate">{t.merchant}</p>
+          <p className="text-xs text-gray-500">
+            {t.txn_date}
+            {t.status === "pending" && (
+              <span
+                className="mr-1 bg-amber-100 text-amber-700 px-1.5 rounded"
+                title="البنك لم يقيّد العملية بعد"
+              >
+                لم يقيّدها البنك بعد
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="text-left whitespace-nowrap">
+          <p className="font-bold text-sm tabular-nums">{Math.abs(t.amount).toFixed(2)} ر.س</p>
+          {t.foreign_amount && (
+            <p className="text-[10px] text-gray-400">
+              {Math.abs(t.foreign_amount)} {t.foreign_currency}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
+      {/* ١ — التقرير */}
       <section className="card">
-        <h2 className="font-bold mb-1">💳 كشف البطاقة</h2>
+        <h2 className="font-bold mb-1">📊 تقرير الكشف</h2>
         <p className="text-xs text-gray-500 mb-3">
-          ارفع الكشف كلما تحدّث. تُقرأ العمليات وتُربط بالفواتير، وما لا فاتورة له تصنّفه بنفسك.
+          ارفع الكشف كلما تحدّث خلال الشهر. تصنيفاتك وروابطك تبقى كما هي.
         </p>
 
         <label className="flex items-center justify-center w-full px-4 py-3 border-2 border-dashed border-primary rounded-lg cursor-pointer hover:bg-blue-50 mb-2">
@@ -163,254 +331,131 @@ export default function CardStatementTab() {
           type="month"
           value={month}
           onChange={(e) => setMonth(e.target.value)}
-          className="input w-full text-sm"
+          className="input w-full text-sm mb-3"
         />
 
-        {msg && <p className="text-green-700 text-xs mt-2">{msg}</p>}
-        {error && <p className="text-red-600 text-xs mt-2">{error}</p>}
-      </section>
+        {msg && <p className="text-green-700 text-xs mb-2">{msg}</p>}
+        {error && <p className="text-red-600 text-xs mb-2">{error}</p>}
 
-      {summary && summary.count > 0 && (
-        <section className="card">
-          <div className="grid grid-cols-3 gap-3 mb-3">
-            <div className="text-center p-3 bg-orange-50 rounded-lg">
-              <p className="text-xs text-gray-600">مصروف الشهر</p>
-              <p className="text-xl font-bold text-orange-600">{summary.totalSpend.toFixed(2)}</p>
-            </div>
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <p className="text-xs text-gray-600">العمليات</p>
-              <p className="text-xl font-bold text-blue-600">{summary.count}</p>
-            </div>
-            <div className="text-center p-3 bg-red-50 rounded-lg">
-              <p className="text-xs text-gray-600">بلا تفاصيل</p>
-              <p className="text-xl font-bold text-red-600">{summary.unlinkedCount}</p>
-            </div>
-          </div>
-
-          {Object.keys(summary.byTarget).length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs font-semibold text-gray-600 mb-1">حسب جهة الصرف</p>
-              <div className="space-y-1">
-                {Object.entries(summary.byTarget)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([target, amount]) => (
-                    <div key={target} className="flex items-center gap-2 text-xs">
-                      <span className="w-28 shrink-0 truncate">{target}</span>
-                      <div className="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
-                        <div
-                          className={target === "بلا جهة" ? "h-full bg-gray-400" : "h-full bg-emerald-500"}
-                          style={{ width: `${(amount / summary.totalSpend) * 100}%` }}
-                        />
-                      </div>
-                      <span className="w-16 text-left font-semibold">{amount.toFixed(2)}</span>
-                    </div>
-                  ))}
+        {summary && summary.count > 0 && (
+          <>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <p className="text-xs text-gray-600">مصروف الشهر</p>
+                <p className="text-lg font-bold text-orange-600 tabular-nums">
+                  {summary.totalSpend.toFixed(2)}
+                </p>
+              </div>
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <p className="text-xs text-gray-600">العمليات</p>
+                <p className="text-lg font-bold text-blue-600">{summary.count}</p>
+              </div>
+              <div className="text-center p-3 bg-red-50 rounded-lg">
+                <p className="text-xs text-gray-600">تنتظر تفاصيل</p>
+                <p className="text-lg font-bold text-red-600">{pending.length}</p>
               </div>
             </div>
-          )}
 
-          {Object.keys(summary.byCategory).length > 0 && (
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-gray-600 mb-1">حسب التصنيف</p>
-              {Object.entries(summary.byCategory)
-                .sort((a, b) => b[1] - a[1])
-                .map(([cat, amount]) => (
-                  <div key={cat} className="flex items-center gap-2 text-xs">
-                    <span className="w-28 shrink-0 truncate">{cat}</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
-                      <div
-                        className={cat === "غير مصنّف" ? "h-full bg-gray-400" : "h-full bg-primary"}
-                        style={{ width: `${(amount / summary.totalSpend) * 100}%` }}
-                      />
-                    </div>
-                    <span className="w-16 text-left font-semibold">{amount.toFixed(2)}</span>
-                  </div>
-                ))}
+            <div className="space-y-4">
+              <Bars title="حسب جهة الصرف" data={summary.byTarget} total={summary.totalSpend} tint="bg-emerald-500" />
+              <Bars title="حسب التصنيف" data={summary.byCategory} total={summary.totalSpend} tint="bg-primary" />
             </div>
-          )}
-        </section>
-      )}
+          </>
+        )}
+      </section>
 
+      {/* ٢ — تنتظر تفاصيلك */}
       <section className="card">
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="font-bold">العمليات</h2>
-          <button
-            onClick={() => setOnlyUnlinked(!onlyUnlinked)}
-            className={`text-xs px-3 py-1.5 rounded border ${
-              onlyUnlinked ? "bg-primary text-white border-primary" : "border-gray-300 text-gray-600"
-            }`}
-          >
-            {onlyUnlinked ? "عرض الكل" : "بلا تفاصيل فقط"}
-          </button>
-        </div>
+        <h2 className="font-bold mb-1">
+          ❓ عمليات تنتظر تفاصيلك{" "}
+          <span className="text-gray-400 text-sm font-normal">({pending.length})</span>
+        </h2>
+        <p className="text-xs text-gray-500 mb-3">
+          عملية تُعدّ مكتملة إذا رُبطت بفاتورة، أو أُعطيت تصنيفاً وجهة صرف.
+        </p>
 
         {loading ? (
           <p className="text-gray-400 text-sm">جارٍ التحميل...</p>
-        ) : visible.length === 0 ? (
-          <p className="text-center text-gray-400 py-8 text-sm">
-            لا عمليات لهذا الشهر — ارفع الكشف أولاً
-          </p>
+        ) : pending.length === 0 ? (
+          <p className="text-center text-gray-400 py-6 text-sm">لا شيء ينتظر — كل العمليات مكتملة</p>
         ) : (
           <div className="space-y-2">
-            {visible.map((t) => (
-              <div
-                key={t.id}
-                className={`border rounded-lg p-3 space-y-2 ${
-                  t.purchase_id
-                    ? "border-green-200 bg-green-50/40"
-                    : t.category
-                      ? "border-gray-200"
-                      : "border-amber-200 bg-amber-50/30"
-                }`}
-              >
-                <div className="flex justify-between items-start gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm truncate">{t.merchant}</p>
-                    <p className="text-xs text-gray-500">
-                      {t.txn_date}
-                      {t.status === "pending" && (
-                        <span
-                          className="mr-1 bg-amber-100 text-amber-700 px-1.5 rounded"
-                          title="البنك لم يقيّد العملية بعد — لا علاقة لها بتفاصيلك"
-                        >
-                          لم يقيّدها البنك بعد
-                        </span>
-                      )}
-                      {t.purchase_id && (
-                        <button
-                          onClick={() => patch(t.id, { purchaseId: null })}
-                          className="mr-1 bg-green-100 text-green-700 px-1.5 rounded"
-                          title="اضغط لفك الارتباط"
-                        >
-                          مرتبطة بفاتورة ✕
-                        </button>
-                      )}
-                    </p>
-                  </div>
-                  <div className="text-left whitespace-nowrap">
-                    <p className={`font-bold text-sm ${t.amount < 0 ? "text-gray-800" : "text-green-600"}`}>
-                      {Math.abs(t.amount).toFixed(2)} ر.س
-                    </p>
-                    {t.foreign_amount && (
-                      <p className="text-[10px] text-gray-400">
-                        {Math.abs(t.foreign_amount)} {t.foreign_currency}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {!t.purchase_id && (
-                  <div className="space-y-1">
-                    {t.suggestions.length > 0 && (
-                      <>
-                        <p className="text-[10px] text-gray-500">فاتورة بنفس المبلغ والتاريخ:</p>
-                        {t.suggestions.map((s) => (
-                          <button
-                            key={s.id}
-                            onClick={() => patch(t.id, { purchaseId: s.id })}
-                            className="w-full text-xs border border-green-300 text-green-800 bg-green-50 rounded p-1.5 text-right"
-                          >
-                            اربط بـ {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
-                          </button>
-                        ))}
-                      </>
-                    )}
-                    {/* The automatic match needs the exact amount, which rarely
-                        survives tips, rounding or a split bill — so every
-                        invoice stays selectable by hand. */}
-                    <select
-                      value=""
-                      onChange={(e) => e.target.value && patch(t.id, { purchaseId: e.target.value })}
-                      className="input text-xs w-full"
-                    >
-                      <option value="">🧾 اختر فاتورة من السجل…</option>
-                      {allPurchases.map((pu) => (
-                        <option key={pu.id} value={pu.id}>
-                          {pu.store_name} — {Number(pu.total_amount).toFixed(2)} ر.س —{" "}
-                          {pu.purchased_at.slice(0, 10)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {!t.purchase_id && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={t.category ?? ""}
-                      onChange={(e) => {
-                        if (e.target.value === NEW_CATEGORY) {
-                          const name = prompt("اسم التصنيف الجديد:")?.trim();
-                          if (name) patch(t.id, { category: name });
-                          return;
-                        }
-                        patch(t.id, { category: e.target.value || null });
-                      }}
-                      className="input text-xs"
-                    >
-                      <option value="">اختر تصنيفاً</option>
-                      {categoryOptions.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                      <option value={NEW_CATEGORY}>➕ تصنيف جديد…</option>
-                    </select>
-                    <input
-                      defaultValue={t.note ?? ""}
-                      onBlur={(e) => {
-                        if (e.target.value !== (t.note ?? "")) patch(t.id, { note: e.target.value });
-                      }}
-                      placeholder="ملاحظة"
-                      className="input text-xs"
-                    />
-                  </div>
-                )}
-
-                {!t.purchase_id && (
-                  <select
-                    value={
-                      t.target_kind === "house"
-                        ? `house:${t.target_house_id ?? ""}`
-                        : t.target_kind === "other"
-                          ? `other:${t.target_label ?? ""}`
-                          : t.target_kind ?? ""
-                    }
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === NEW_TARGET) {
-                        const label = prompt("اسم بند المصاريف الجديد:")?.trim();
-                        if (label) patch(t.id, { targetKind: "other", targetLabel: label });
-                        return;
-                      }
-                      if (v.startsWith("house:")) {
-                        patch(t.id, { targetKind: "house", targetHouseId: v.slice(6) });
-                      } else if (v.startsWith("other:")) {
-                        patch(t.id, { targetKind: "other", targetLabel: v.slice(6) });
-                      } else {
-                        patch(t.id, { targetKind: v || null });
-                      }
-                    }}
-                    className="input text-xs w-full"
-                  >
-                    <option value="">جهة الصرف؟</option>
-                    {houses.map((h) => (
-                      <option key={h.id} value={`house:${h.id}`}>
-                        🏠 {h.name}
-                      </option>
-                    ))}
-                    <option value="personal">👤 مصاريف شخصية</option>
-                    <option value="warehouse">📦 المخزن</option>
-                    {usedTargets.map((lbl) => (
-                      <option key={lbl} value={`other:${lbl}`}>
-                        {lbl}
-                      </option>
-                    ))}
-                    <option value={NEW_TARGET}>➕ بند مصاريف جديد…</option>
-                  </select>
-                )}
+            {pending.map((t) => (
+              <div key={t.id} className="border border-amber-200 bg-amber-50/30 rounded-lg p-3 space-y-2">
+                <Head t={t} />
+                <Editor t={t} />
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* ٣ — مكتملة، عرض فقط */}
+      <section className="card">
+        <h2 className="font-bold mb-3">
+          ✅ عمليات مكتملة{" "}
+          <span className="text-gray-400 text-sm font-normal">({settled.length})</span>
+        </h2>
+
+        {settled.length === 0 ? (
+          <p className="text-center text-gray-400 py-6 text-sm">لم تكتمل أي عملية بعد</p>
+        ) : (
+          <div className="space-y-2">
+            {settled.map((t) => {
+              const linked = purchases.find((pu) => pu.id === t.purchase_id);
+              return (
+                <div key={t.id} className="border border-gray-200 rounded-lg p-3 space-y-2">
+                  <Head t={t} />
+
+                  {editing === t.id ? (
+                    <>
+                      <Editor t={t} />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => removeTxn(t.id, t.merchant)}
+                          className="text-xs text-red-600 border border-red-200 rounded px-3 py-1.5"
+                        >
+                          حذف العملية
+                        </button>
+                        <button
+                          onClick={() => setEditing(null)}
+                          className="flex-1 text-xs btn-primary"
+                        >
+                          تم
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between items-end gap-2">
+                      <div className="flex flex-wrap gap-1.5 text-[11px]">
+                        {linked && (
+                          <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded">
+                            🧾 {linked.store_name}
+                          </span>
+                        )}
+                        {t.category && (
+                          <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded">
+                            {t.category}
+                          </span>
+                        )}
+                        {targetText(t) && (
+                          <span className="bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded">
+                            {targetText(t)}
+                          </span>
+                        )}
+                        {t.note && <span className="text-gray-500">— {t.note}</span>}
+                      </div>
+                      <button
+                        onClick={() => setEditing(t.id)}
+                        className="text-xs text-primary border border-blue-200 rounded px-3 py-1 whitespace-nowrap"
+                      >
+                        ✏️ تعديل
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
