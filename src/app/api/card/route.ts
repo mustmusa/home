@@ -62,7 +62,9 @@ export async function GET(req: NextRequest) {
 
     const byCategory: Record<string, number> = {};
     for (const t of spend) {
-      const key = t.category || "غير مصنّف";
+      // A charge tied to an invoice is accounted for even without a category,
+      // so it is not lumped in with the genuinely unexplained spending.
+      const key = t.category || (t.purchase_id ? "مرتبط بفاتورة" : "غير مصنّف");
       byCategory[key] = (byCategory[key] ?? 0) + Math.abs(Number(t.amount));
     }
 
