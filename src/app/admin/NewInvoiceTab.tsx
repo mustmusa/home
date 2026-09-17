@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CATEGORIES, type House } from "@/lib/types";
+import { CATEGORIES, STORES, type House } from "@/lib/types";
 
 type PendingForMatch = {
   id: string;
@@ -207,7 +207,6 @@ export default function NewInvoiceTab() {
         batchNumber?: number;
         lineCount?: number;
         imagePaths?: string[];
-        storeName?: string | null;
       };
       let data: BatchResponse;
 
@@ -241,8 +240,6 @@ export default function NewInvoiceTab() {
       }
 
       if (data.success) {
-        // Only fills an empty field, so a name typed by hand is never replaced.
-        if (data.storeName && !storeName.trim()) setStoreName(data.storeName);
         const newBatchCount = uploadedBatches + 1;
         const newLineCount = totalExtractedLines + (data.lineCount ?? 0);
         setUploadedBatches(newBatchCount);
@@ -442,14 +439,31 @@ export default function NewInvoiceTab() {
           </p>
 
           <div className="mb-3">
-            <label className="block text-sm text-gray-600 mb-2">📍 اسم المكان التجاري</label>
-            <input
-              type="text"
-              className="input"
-              value={storeName}
-              onChange={(e) => setStoreName(e.target.value)}
-              placeholder="مثال: بقالة النور، سوبر ماركت..."
-            />
+            <label className="block text-sm text-gray-600 mb-2">📍 المتجر</label>
+            <select
+              className="input w-full mb-2"
+              value={STORES.includes(storeName as never) ? storeName : storeName ? "__other__" : ""}
+              onChange={(e) =>
+                setStoreName(e.target.value === "__other__" ? "" : e.target.value)
+              }
+            >
+              <option value="">اختر المتجر</option>
+              {STORES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+              <option value="__other__">متجر آخر…</option>
+            </select>
+            {!STORES.includes(storeName as never) && (
+              <input
+                type="text"
+                className="input w-full"
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                placeholder="اكتب اسم المتجر"
+              />
+            )}
           </div>
 
           {uploadedBatches > 0 && (

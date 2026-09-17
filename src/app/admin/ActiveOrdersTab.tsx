@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { House } from "@/lib/types";
-import { CATEGORIES } from "@/lib/types";
+import { CATEGORIES, STORES } from "@/lib/types";
 
 type Request = {
   id: string;
@@ -87,7 +87,7 @@ export default function ActiveOrdersTab() {
     const chosen = requests.filter((r) => selectedRequests.has(r.id));
     if (chosen.length === 0) return;
     setError(null);
-    setStoreName("إدخال يدوي");
+    setStoreName("");
     setDraft(
       chosen.map((r) => ({
         requestId: r.id,
@@ -229,13 +229,28 @@ export default function ActiveOrdersTab() {
           <label className="block text-xs font-semibold text-gray-600 mb-1">
             المكان الذي اشتريت منه
           </label>
-          <input
+          <select
             id="manual-store"
-            value={storeName}
-            onChange={(e) => setStoreName(e.target.value)}
-            placeholder="مثال: التميمي — العليا"
-            className="input w-full text-sm mb-3"
-          />
+            value={STORES.includes(storeName as never) ? storeName : "__other__"}
+            onChange={(e) => setStoreName(e.target.value === "__other__" ? "" : e.target.value)}
+            className="input w-full text-sm mb-2"
+          >
+            <option value="">اختر المتجر</option>
+            {STORES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+            <option value="__other__">متجر آخر…</option>
+          </select>
+          {!STORES.includes(storeName as never) && (
+            <input
+              value={storeName}
+              onChange={(e) => setStoreName(e.target.value)}
+              placeholder="اكتب اسم المتجر"
+              className="input w-full text-sm mb-3"
+            />
+          )}
 
           <div className="space-y-2">
             {draft.map((line, i) => {

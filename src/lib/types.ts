@@ -43,6 +43,20 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
+/** المتاجر المعروفة — تُستعمل في الفواتير والعروض وكشف البطاقة */
+export const STORES = [
+  "بندا",
+  "الجزيرة",
+  "الدانوب",
+  "أسواق التميمي",
+  "اللولو",
+  "نستو",
+  "العثيم",
+  "كارفور",
+] as const;
+
+export type Store = (typeof STORES)[number];
+
 export type RequestStatus = "pending" | "purchased" | "cancelled";
 
 export type PurchaseRequest = {
