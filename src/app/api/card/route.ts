@@ -64,8 +64,13 @@ export async function GET(req: NextRequest) {
       byCategory[key] = (byCategory[key] ?? 0) + Math.abs(Number(t.amount));
     }
 
+    const usedCategories = [
+      ...new Set((txns ?? []).map((t) => t.category).filter((c): c is string => !!c)),
+    ].sort();
+
     return NextResponse.json({
       transactions: withSuggestions,
+      usedCategories,
       summary: {
         count: txns?.length ?? 0,
         totalSpend: Number(totalSpend.toFixed(2)),

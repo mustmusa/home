@@ -28,7 +28,8 @@ type Summary = {
 };
 
 const EXTRA_CATEGORIES = ["مواصلات", "وقود", "مطاعم", "اشتراكات", "فواتير", "صحة", "تسوق عام"];
-const ALL_CATEGORIES = [...CATEGORIES.filter((c) => c !== "أخرى"), ...EXTRA_CATEGORIES, "أخرى"];
+const BUILT_IN = [...CATEGORIES.filter((c) => c !== "أخرى"), ...EXTRA_CATEGORIES, "أخرى"];
+const NEW_CATEGORY = "__new__";
 
 function thisMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -43,6 +44,7 @@ export default function CardStatementTab() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [onlyUnlinked, setOnlyUnlinked] = useState(false);
+  const [used, setUsed] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +54,7 @@ export default function CardStatementTab() {
       if (!res.ok) throw new Error(data.error || "تعذّر التحميل");
       setTxns(data.transactions ?? []);
       setSummary(data.summary ?? null);
+      setUsed(data.usedCategories ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "خطأ غير متوقع");
     } finally {
@@ -116,6 +119,8 @@ export default function CardStatementTab() {
     }
   }
 
+  // A category the user invents stays in the list once any row carries it.
+  const categoryOptions = [...new Set([...BUILT_IN, ...used])];
   const visible = onlyUnlinked ? txns.filter((t) => !t.purchase_id && t.amount < 0) : txns;
 
   return (
@@ -258,15 +263,23 @@ export default function CardStatementTab() {
                   <div className="grid grid-cols-2 gap-2">
                     <select
                       value={t.category ?? ""}
-                      onChange={(e) => patch(t.id, { category: e.target.value || null })}
+                      onChange={(e) => {
+                        if (e.target.value === NEW_CATEGORY) {
+                          const name = prompt("اسم التصنيف الجديد:")?.trim();
+                          if (name) patch(t.id, { category: name });
+                          return;
+                        }
+                        patch(t.id, { category: e.target.value || null });
+                      }}
                       className="input text-xs"
                     >
                       <option value="">اختر تصنيفاً</option>
-                      {ALL_CATEGORIES.map((c) => (
+                      {categoryOptions.map((c) => (
                         <option key={c} value={c}>
                           {c}
                         </option>
                       ))}
+                      <option value={NEW_CATEGORY}>➕ تصنيف جديد…</option>
                     </select>
                     <input
                       defaultValue={t.note ?? ""}
