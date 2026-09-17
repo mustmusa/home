@@ -5,6 +5,7 @@ import { CATEGORIES, type House } from "@/lib/types";
 
 type StoreGroup = {
   store_name: string;
+  purchase_ids: string[];
   total: number;
   item_count: number;
   items: Array<{
@@ -35,6 +36,8 @@ export default function PurchasedOrdersTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", qty: "", price: "", category: "" });
   const [rowError, setRowError] = useState<string | null>(null);
+  const [editingStore, setEditingStore] = useState<string | null>(null);
+  const [storeDraft, setStoreDraft] = useState("");
 
   useEffect(() => {
     loadHouses();
@@ -88,11 +91,13 @@ export default function PurchasedOrdersTab() {
         }));
 
         if (storeGroup) {
+          storeGroup.purchase_ids.push(p.id);
           storeGroup.items.push(...items);
           storeGroup.total += p.total_amount;
           storeGroup.item_count += items.length;
         } else {
           grouped[date].stores.push({
+            purchase_ids: [p.id],
             store_name: p.store_name || "متجر",
             total: p.total_amount,
             item_count: items.length,
@@ -164,6 +169,27 @@ export default function PurchasedOrdersTab() {
       price: String(item.price ?? 0),
       category: item.category ?? "",
     });
+  }
+
+  async function saveStoreName(ids: string[]) {
+    const key = ids.join(",");
+    setUpdating(key);
+    try {
+      const [first, ...rest] = ids;
+      const res = await fetch(`/api/purchases/${first}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeName: storeDraft, alsoIds: rest }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل التعديل");
+      setEditingStore(null);
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setUpdating(null);
+    }
   }
 
   async function saveLine(lineId: string) {
@@ -286,9 +312,43 @@ export default function PurchasedOrdersTab() {
                         className="bg-white border border-gray-100 rounded-lg p-3 space-y-2"
                       >
                         {/* Store Header */}
-                        <div className="flex justify-between items-start">
-                          <h4 className="font-semibold text-sm">🛒 {store.store_name}</h4>
-                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
+                        <div className="flex justify-between items-start gap-2">
+                          {editingStore === store.purchase_ids.join(",") ? (
+                            <div className="flex-1 flex gap-1">
+                              <input
+                                value={storeDraft}
+                                onChange={(e) => setStoreDraft(e.target.value)}
+                                className="input flex-1 text-sm"
+                                placeholder="اسم المتجر"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => saveStoreName(store.purchase_ids)}
+                                disabled={updating === store.purchase_ids.join(",")}
+                                className="text-xs btn-primary px-3"
+                              >
+                                حفظ
+                              </button>
+                              <button
+                                onClick={() => setEditingStore(null)}
+                                className="text-xs bg-gray-100 border border-gray-300 rounded px-3"
+                              >
+                                إلغاء
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingStore(store.purchase_ids.join(","));
+                                setStoreDraft(store.store_name);
+                              }}
+                              className="font-semibold text-sm text-right hover:text-primary"
+                              title="اضغط لتعديل اسم المتجر"
+                            >
+                              🛒 {store.store_name} <span className="text-gray-400 text-xs">✏️</span>
+                            </button>
+                          )}
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded whitespace-nowrap">
                             {store.total.toFixed(2)} ريال
                           </span>
                         </div>
