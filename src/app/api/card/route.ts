@@ -96,6 +96,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       transactions: withSuggestions,
       houses: houses ?? [],
+      purchases: purchases ?? [],
       usedCategories,
       usedTargets,
       summary: {

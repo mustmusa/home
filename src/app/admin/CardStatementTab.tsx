@@ -54,6 +54,7 @@ export default function CardStatementTab() {
   const [used, setUsed] = useState<string[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
   const [usedTargets, setUsedTargets] = useState<string[]>([]);
+  const [allPurchases, setAllPurchases] = useState<Suggestion[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +67,7 @@ export default function CardStatementTab() {
       setUsed(data.usedCategories ?? []);
       setHouses(data.houses ?? []);
       setUsedTargets(data.usedTargets ?? []);
+      setAllPurchases(data.purchases ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "خطأ غير متوقع");
     } finally {
@@ -275,7 +277,13 @@ export default function CardStatementTab() {
                         </span>
                       )}
                       {t.purchase_id && (
-                        <span className="mr-1 bg-green-100 text-green-700 px-1.5 rounded">مرتبطة بفاتورة</span>
+                        <button
+                          onClick={() => patch(t.id, { purchaseId: null })}
+                          className="mr-1 bg-green-100 text-green-700 px-1.5 rounded"
+                          title="اضغط لفك الارتباط"
+                        >
+                          مرتبطة بفاتورة ✕
+                        </button>
                       )}
                     </p>
                   </div>
@@ -291,18 +299,38 @@ export default function CardStatementTab() {
                   </div>
                 </div>
 
-                {!t.purchase_id && t.suggestions.length > 0 && (
+                {!t.purchase_id && (
                   <div className="space-y-1">
-                    <p className="text-[10px] text-gray-500">فاتورة بنفس المبلغ والتاريخ:</p>
-                    {t.suggestions.map((s) => (
-                      <button
-                        key={s.id}
-                        onClick={() => patch(t.id, { purchaseId: s.id })}
-                        className="w-full text-xs border border-green-300 text-green-800 bg-green-50 rounded p-1.5 text-right"
-                      >
-                        اربط بـ {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
-                      </button>
-                    ))}
+                    {t.suggestions.length > 0 && (
+                      <>
+                        <p className="text-[10px] text-gray-500">فاتورة بنفس المبلغ والتاريخ:</p>
+                        {t.suggestions.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => patch(t.id, { purchaseId: s.id })}
+                            className="w-full text-xs border border-green-300 text-green-800 bg-green-50 rounded p-1.5 text-right"
+                          >
+                            اربط بـ {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {/* The automatic match needs the exact amount, which rarely
+                        survives tips, rounding or a split bill — so every
+                        invoice stays selectable by hand. */}
+                    <select
+                      value=""
+                      onChange={(e) => e.target.value && patch(t.id, { purchaseId: e.target.value })}
+                      className="input text-xs w-full"
+                    >
+                      <option value="">🧾 اختر فاتورة من السجل…</option>
+                      {allPurchases.map((pu) => (
+                        <option key={pu.id} value={pu.id}>
+                          {pu.store_name} — {Number(pu.total_amount).toFixed(2)} ر.س —{" "}
+                          {pu.purchased_at.slice(0, 10)}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
 
