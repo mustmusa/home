@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { House } from "@/lib/types";
+import { CATEGORIES } from "@/lib/types";
 
 type Request = {
   id: string;
@@ -14,6 +15,17 @@ type Request = {
   requested_at: string;
 };
 
+type DraftLine = {
+  requestId: string;
+  itemName: string;
+  quantity: number;
+  unitPrice: string;
+  destination: "house" | "warehouse";
+  houseId: string;
+  houseName: string;
+  category: string;
+};
+
 export default function ActiveOrdersTab() {
   const [requests, setRequests] = useState<Request[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
@@ -22,6 +34,8 @@ export default function ActiveOrdersTab() {
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
   const [purchasing, setPurchasing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<DraftLine[] | null>(null);
+  const [storeName, setStoreName] = useState("إدخال يدوي");
 
   useEffect(() => {
     load();
@@ -69,31 +83,64 @@ export default function ActiveOrdersTab() {
     }
   }
 
-  async function purchaseSelected() {
-    if (selectedRequests.size === 0) {
-      alert("اختر طلبات للشراء");
+  function openDraft() {
+    const chosen = requests.filter((r) => selectedRequests.has(r.id));
+    if (chosen.length === 0) return;
+    setError(null);
+    setStoreName("إدخال يدوي");
+    setDraft(
+      chosen.map((r) => ({
+        requestId: r.id,
+        itemName: r.item_name,
+        quantity: r.quantity_requested ?? 1,
+        unitPrice: "",
+        destination: "house",
+        houseId: r.house_id,
+        houseName: r.house_name,
+        category: "",
+      }))
+    );
+  }
+
+  function editLine(i: number, patch: Partial<DraftLine>) {
+    setDraft((d) => d && d.map((line, idx) => (idx === i ? { ...line, ...patch } : line)));
+  }
+
+  async function saveDraft() {
+    if (!draft) return;
+    const missing = draft.find((l) => l.unitPrice.trim() === "");
+    if (missing) {
+      setError(`أدخل سعر: ${missing.itemName}`);
       return;
     }
 
-    if (!confirm(`شراء ${selectedRequests.size} طلب?`)) return;
-
     setPurchasing(true);
+    setError(null);
     try {
       const res = await fetch("/api/purchases/create-from-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          requestIds: Array.from(selectedRequests),
+          storeName,
+          items: draft.map((l) => ({
+            requestId: l.requestId,
+            itemName: l.itemName,
+            quantity: l.quantity,
+            unitPrice: Number(l.unitPrice),
+            destination: l.destination,
+            houseId: l.houseId,
+            category: l.category || null,
+          })),
         }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل الحفظ");
 
-      if (!res.ok) throw new Error("فشل الشراء");
-
+      setDraft(null);
       setSelectedRequests(new Set());
       load();
-      alert("✅ تم شراء الطلبات بنجاح");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "خطأ في الشراء");
+      setError(e instanceof Error ? e.message : "خطأ غير متوقع");
     } finally {
       setPurchasing(false);
     }
@@ -161,16 +208,129 @@ export default function ActiveOrdersTab() {
             </button>
             {selectedRequests.size > 0 && (
               <button
-                onClick={purchaseSelected}
+                onClick={openDraft}
                 disabled={purchasing}
                 className="flex-1 text-xs btn-primary"
               >
-                {purchasing ? "جارٍ الشراء..." : `🛒 شراء (${selectedRequests.size})`}
+                {`🛒 شراء (${selectedRequests.size})`}
               </button>
             )}
           </div>
         )}
       </section>
+
+      {draft && (
+        <section className="card border-2 border-primary">
+          <h2 className="font-bold mb-1">🧾 تسجيل شراء يدوي</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            أدخل ما دفعته فعلاً. تُحفظ فاتورة بمصدر «إدخال يدوي» وتتحوّل الطلبات إلى «تم شراؤه».
+          </p>
+
+          <label className="block text-xs font-semibold text-gray-600 mb-1">
+            المكان الذي اشتريت منه
+          </label>
+          <input
+            id="manual-store"
+            value={storeName}
+            onChange={(e) => setStoreName(e.target.value)}
+            placeholder="مثال: التميمي — العليا"
+            className="input w-full text-sm mb-3"
+          />
+
+          <div className="space-y-2">
+            {draft.map((line, i) => {
+              const lineTotal = (Number(line.unitPrice) || 0) * line.quantity;
+              return (
+                <div key={line.requestId} className="border border-gray-200 rounded-lg p-2 space-y-2">
+                  <div className="flex justify-between items-baseline gap-2">
+                    <p className="font-semibold text-sm flex-1">{line.itemName}</p>
+                    <span className="text-xs font-bold text-green-600 whitespace-nowrap">
+                      {lineTotal.toFixed(2)} ر.س
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">الكمية</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={line.quantity}
+                        onChange={(e) => editLine(i, { quantity: Number(e.target.value) || 0 })}
+                        className="input w-full text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">سعر الوحدة</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        inputMode="decimal"
+                        value={line.unitPrice}
+                        onChange={(e) => editLine(i, { unitPrice: e.target.value })}
+                        placeholder="0.00"
+                        className="input w-full text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={line.destination}
+                      onChange={(e) =>
+                        editLine(i, { destination: e.target.value as "house" | "warehouse" })
+                      }
+                      className="input text-xs"
+                    >
+                      <option value="house">🏠 {line.houseName}</option>
+                      <option value="warehouse">📦 المخزن</option>
+                    </select>
+                    <select
+                      value={line.category}
+                      onChange={(e) => editLine(i, { category: e.target.value })}
+                      className="input text-xs"
+                    >
+                      <option value="">بدون تصنيف</option>
+                      {CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex justify-between items-baseline mt-3 pt-3 border-t border-gray-200">
+            <span className="text-sm font-semibold">الإجمالي</span>
+            <span className="text-lg font-bold text-green-600">
+              {draft
+                .reduce((s, l) => s + (Number(l.unitPrice) || 0) * l.quantity, 0)
+                .toFixed(2)}{" "}
+              ر.س
+            </span>
+          </div>
+
+          {error && <p className="text-red-600 text-xs mt-2">{error}</p>}
+
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={() => setDraft(null)}
+              disabled={purchasing}
+              className="flex-1 text-sm bg-gray-100 hover:bg-gray-200 p-2 rounded border border-gray-300"
+            >
+              إلغاء
+            </button>
+            <button onClick={saveDraft} disabled={purchasing} className="flex-1 text-sm btn-primary">
+              {purchasing ? "جارٍ الحفظ..." : "✓ حفظ الشراء"}
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Requests List */}
       <section className="card">

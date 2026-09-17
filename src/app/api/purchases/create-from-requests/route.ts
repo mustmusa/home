@@ -2,87 +2,117 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
 
+type Item = {
+  requestId: string;
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  destination: "house" | "warehouse";
+  houseId: string | null;
+  category: string | null;
+};
+
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session || session.role !== "admin") {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 
-  const { requestIds } = await req.json();
-
-  if (!Array.isArray(requestIds) || requestIds.length === 0) {
-    return NextResponse.json({ error: "لا توجد طلبات للشراء" }, { status: 400 });
-  }
-
-  const db = supabaseServer();
-
   try {
-    // احصل على بيانات الطلبات
-    const { data: requests, error: reqErr } = await db
-      .from("requests")
-      .select("*")
-      .in("id", requestIds);
+    const { storeName, purchasedAt, items } = await req.json();
 
-    if (reqErr || !requests) {
-      return NextResponse.json({ error: "فشل جلب الطلبات" }, { status: 500 });
+    if (!Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ error: "لا توجد عناصر للشراء" }, { status: 400 });
     }
 
-    // احسب الإجمالي
-    const totalAmount = requests.reduce(
-      (sum, r) => sum + (Number(r.quantity_requested || 0) * 10), // تقدير مؤقت
-      0
-    );
+    const clean: Item[] = [];
+    for (const it of items as Item[]) {
+      const quantity = Number(it.quantity);
+      const unitPrice = Number(it.unitPrice);
+      if (!it.itemName?.trim()) {
+        return NextResponse.json({ error: "اسم عنصر فارغ" }, { status: 400 });
+      }
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        return NextResponse.json(
+          { error: `سعر غير صالح للعنصر: ${it.itemName}` },
+          { status: 400 }
+        );
+      }
+      clean.push({
+        ...it,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+        unitPrice,
+      });
+    }
 
-    // أنشئ شراء جديد
+    const total = clean.reduce((s, it) => s + it.quantity * it.unitPrice, 0);
+    const warehouseTotal = clean
+      .filter((it) => it.destination === "warehouse")
+      .reduce((s, it) => s + it.quantity * it.unitPrice, 0);
+
+    const db = supabaseServer();
+
     const { data: purchase, error: purchaseErr } = await db
       .from("purchases")
       .insert({
-        total_amount: totalAmount,
-        total_with_tax: totalAmount * 1.15,
-        store_name: "من الطلبات",
+        // Prices are entered as paid, so there is no separate tax to derive.
+        total_amount: total,
+        total_with_tax: total,
+        warehouse_total: warehouseTotal,
+        store_name: String(storeName || "").trim() || "إدخال يدوي",
         purchased_by: session.uid,
+        purchased_at: purchasedAt || new Date().toISOString(),
       })
       .select()
       .single();
 
     if (purchaseErr || !purchase) {
-      return NextResponse.json({ error: "فشل إنشاء الشراء" }, { status: 500 });
+      return NextResponse.json(
+        { error: purchaseErr?.message ?? "فشل إنشاء الفاتورة" },
+        { status: 500 }
+      );
     }
 
-    // أنشئ أسطر الشراء من الطلبات
-    const lineRows = requests.map((r) => ({
-      purchase_id: purchase.id,
-      item_name: r.item_name,
-      quantity: r.quantity_requested,
-      line_total: Number(r.quantity_requested || 0) * 10,
-      destination: "warehouse" as const,
-      house_id: r.house_id,
-      matched_request_id: r.id,
-      source: "request" as const,
-      category: null,
-    }));
-
-    const { error: linesErr } = await db.from("purchase_lines").insert(lineRows);
+    const { error: linesErr } = await db.from("purchase_lines").insert(
+      clean.map((it) => ({
+        purchase_id: purchase.id,
+        item_name: it.itemName.trim(),
+        quantity: it.quantity,
+        unit_price: it.unitPrice,
+        line_total: it.quantity * it.unitPrice,
+        destination: it.destination,
+        house_id: it.destination === "house" ? it.houseId : null,
+        matched_request_id: it.requestId,
+        source: "manual" as const,
+        category: it.category,
+      }))
+    );
 
     if (linesErr) {
-      return NextResponse.json({ error: "فشل حفظ الأسطر" }, { status: 500 });
+      // Otherwise a failed run leaves an empty purchase behind in the ledger.
+      await db.from("purchases").delete().eq("id", purchase.id);
+      return NextResponse.json({ error: linesErr.message }, { status: 500 });
     }
 
-    // حدّث حالة الطلبات إلى "purchased"
-    const { error: updateErr } = await db
-      .from("requests")
-      .update({ status: "purchased" })
-      .in("id", requestIds);
-
-    if (updateErr) {
-      console.error("تحذير: فشل تحديث حالة الطلبات", updateErr);
+    const requestIds = clean.map((it) => it.requestId).filter(Boolean);
+    if (requestIds.length > 0) {
+      const { error: updateErr } = await db
+        .from("requests")
+        .update({ status: "purchased" })
+        .in("id", requestIds);
+      if (updateErr) {
+        return NextResponse.json(
+          { error: `حُفظت الفاتورة لكن تعذّر تحديث الطلبات: ${updateErr.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({
       ok: true,
       purchaseId: purchase.id,
-      requestsCount: requests.length,
-      totalAmount,
+      itemsCount: clean.length,
+      total,
     });
   } catch (e) {
     return NextResponse.json(
