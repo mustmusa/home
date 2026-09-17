@@ -37,6 +37,15 @@ const BUILT_IN = [...CATEGORIES.filter((c) => c !== "أخرى"), ...EXTRA_CATEGO
 const NEW_CATEGORY = "__new__";
 const NEW_TARGET = "__new_target__";
 
+type Draft = {
+  purchase_id: string | null;
+  category: string | null;
+  target_kind: Txn["target_kind"];
+  target_house_id: string | null;
+  target_label: string | null;
+  note: string | null;
+};
+
 /** مكتملة = مرتبطة بفاتورة، أو لها تصنيف وجهة صرف معاً */
 function isSettled(t: Txn) {
   return Boolean(t.purchase_id) || Boolean(t.category && t.target_kind);
@@ -89,6 +98,8 @@ export default function CardStatementTab() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, Partial<Draft>>>({});
+  const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -138,17 +149,94 @@ export default function CardStatementTab() {
     }
   }
 
-  async function patch(id: string, body: Record<string, unknown>) {
-    const res = await fetch("/api/card", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, ...body }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error || "فشل الحفظ");
+  // Edits are held locally so a run of 66 charges is not 66 round trips, and
+  // nothing is written until the user asks for it.
+  function stored(t: Txn): Draft {
+    return {
+      purchase_id: t.purchase_id,
+      category: t.category,
+      target_kind: t.target_kind,
+      target_house_id: t.target_house_id,
+      target_label: t.target_label,
+      note: t.note,
+    };
+  }
+
+  function draftOf(t: Txn): Draft {
+    return { ...stored(t), ...(drafts[t.id] ?? {}) };
+  }
+
+  function isDirty(t: Txn) {
+    const base = stored(t);
+    const d = draftOf(t);
+    return (Object.keys(base) as (keyof Draft)[]).some((k) => d[k] !== base[k]);
+  }
+
+  function edit(id: string, patch: Partial<Draft>) {
+    setDrafts((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), ...patch } }));
+  }
+
+  async function save(t: Txn) {
+    const d = draftOf(t);
+    setSaving(t.id);
+    try {
+      const res = await fetch("/api/card", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: t.id,
+          purchaseId: d.purchase_id,
+          category: d.category,
+          targetKind: d.target_kind,
+          targetHouseId: d.target_house_id,
+          targetLabel: d.target_label,
+          note: d.note,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "فشل الحفظ");
+      }
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[t.id];
+        return next;
+      });
+      setEditing(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setSaving(null);
     }
-    load();
+  }
+
+  async function saveAll(list: Txn[]) {
+    const dirty = list.filter(isDirty);
+    if (dirty.length === 0) return;
+    setSaving("all");
+    try {
+      for (const t of dirty) {
+        const d = draftOf(t);
+        await fetch("/api/card", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: t.id,
+            purchaseId: d.purchase_id,
+            category: d.category,
+            targetKind: d.target_kind,
+            targetHouseId: d.target_house_id,
+            targetLabel: d.target_label,
+            note: d.note,
+          }),
+        });
+      }
+      setDrafts({});
+      await load();
+    } finally {
+      setSaving(null);
+    }
   }
 
   async function removeTxn(id: string, merchant: string) {
@@ -170,9 +258,10 @@ export default function CardStatementTab() {
   const settled = txns.filter(isSettled);
 
   function targetValue(t: Txn) {
-    if (t.target_kind === "house") return `house:${t.target_house_id ?? ""}`;
-    if (t.target_kind === "other") return `other:${t.target_label ?? ""}`;
-    return t.target_kind ?? "";
+    const d = draftOf(t);
+    if (d.target_kind === "house") return `house:${d.target_house_id ?? ""}`;
+    if (d.target_kind === "other") return `other:${d.target_label ?? ""}`;
+    return d.target_kind ?? "";
   }
 
   function targetText(t: Txn) {
@@ -187,35 +276,45 @@ export default function CardStatementTab() {
   function onTarget(t: Txn, v: string) {
     if (v === NEW_TARGET) {
       const label = prompt("اسم بند المصاريف الجديد:")?.trim();
-      if (label) patch(t.id, { targetKind: "other", targetLabel: label });
+      if (label) edit(t.id, { target_kind: "other", target_label: label, target_house_id: null });
       return;
     }
-    if (v.startsWith("house:")) patch(t.id, { targetKind: "house", targetHouseId: v.slice(6) });
-    else if (v.startsWith("other:")) patch(t.id, { targetKind: "other", targetLabel: v.slice(6) });
-    else patch(t.id, { targetKind: v || null });
+    if (v.startsWith("house:"))
+      edit(t.id, { target_kind: "house", target_house_id: v.slice(6), target_label: null });
+    else if (v.startsWith("other:"))
+      edit(t.id, { target_kind: "other", target_label: v.slice(6), target_house_id: null });
+    else
+      edit(t.id, {
+        target_kind: (v || null) as Txn["target_kind"],
+        target_house_id: null,
+        target_label: null,
+      });
   }
 
   function Editor({ t }: { t: Txn }) {
+    const d = draftOf(t);
+    const dirty = isDirty(t);
+
     return (
       <div className="space-y-2">
-        {t.suggestions.length > 0 && !t.purchase_id && (
+        {t.suggestions.length > 0 && !d.purchase_id && (
           <div className="space-y-1">
             <p className="text-[10px] text-gray-500">فاتورة بنفس المبلغ والتاريخ:</p>
             {t.suggestions.map((s) => (
               <button
                 key={s.id}
-                onClick={() => patch(t.id, { purchaseId: s.id })}
+                onClick={() => edit(t.id, { purchase_id: s.id })}
                 className="w-full text-xs border border-green-300 text-green-800 bg-green-50 rounded p-1.5 text-right"
               >
-                اربط بـ {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
+                اختر {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
               </button>
             ))}
           </div>
         )}
 
         <select
-          value={t.purchase_id ?? ""}
-          onChange={(e) => patch(t.id, { purchaseId: e.target.value || null })}
+          value={d.purchase_id ?? ""}
+          onChange={(e) => edit(t.id, { purchase_id: e.target.value || null })}
           className="input text-xs w-full"
         >
           <option value="">🧾 بلا فاتورة</option>
@@ -228,19 +327,19 @@ export default function CardStatementTab() {
 
         <div className="grid grid-cols-2 gap-2">
           <select
-            value={t.category ?? ""}
+            value={d.category ?? ""}
             onChange={(e) => {
               if (e.target.value === NEW_CATEGORY) {
                 const name = prompt("اسم التصنيف الجديد:")?.trim();
-                if (name) patch(t.id, { category: name });
+                if (name) edit(t.id, { category: name });
                 return;
               }
-              patch(t.id, { category: e.target.value || null });
+              edit(t.id, { category: e.target.value || null });
             }}
             className="input text-xs"
           >
             <option value="">اختر تصنيفاً</option>
-            {categoryOptions.map((c) => (
+            {[...new Set([...categoryOptions, ...(d.category ? [d.category] : [])])].map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
@@ -261,23 +360,47 @@ export default function CardStatementTab() {
             ))}
             <option value="personal">👤 مصاريف شخصية</option>
             <option value="warehouse">📦 المخزن</option>
-            {usedTargets.map((lbl) => (
-              <option key={lbl} value={`other:${lbl}`}>
-                {lbl}
-              </option>
-            ))}
+            {[...new Set([...usedTargets, ...(d.target_kind === "other" && d.target_label ? [d.target_label] : [])])].map(
+              (lbl) => (
+                <option key={lbl} value={`other:${lbl}`}>
+                  {lbl}
+                </option>
+              )
+            )}
             <option value={NEW_TARGET}>➕ بند جديد…</option>
           </select>
         </div>
 
         <input
-          defaultValue={t.note ?? ""}
-          onBlur={(e) => {
-            if (e.target.value !== (t.note ?? "")) patch(t.id, { note: e.target.value });
-          }}
+          value={d.note ?? ""}
+          onChange={(e) => edit(t.id, { note: e.target.value || null })}
           placeholder="ملاحظة"
           className="input text-xs w-full"
         />
+
+        <div className="flex gap-2">
+          {dirty && (
+            <button
+              onClick={() =>
+                setDrafts((prev) => {
+                  const next = { ...prev };
+                  delete next[t.id];
+                  return next;
+                })
+              }
+              className="text-xs bg-gray-100 border border-gray-300 rounded px-3 py-1.5"
+            >
+              تراجع
+            </button>
+          )}
+          <button
+            onClick={() => save(t)}
+            disabled={!dirty || saving === t.id}
+            className="flex-1 text-xs btn-primary disabled:opacity-40"
+          >
+            {saving === t.id ? "جارٍ الحفظ..." : dirty ? "💾 حفظ" : "لا تغييرات"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -371,8 +494,20 @@ export default function CardStatementTab() {
           <span className="text-gray-400 text-sm font-normal">({pending.length})</span>
         </h2>
         <p className="text-xs text-gray-500 mb-3">
-          عملية تُعدّ مكتملة إذا رُبطت بفاتورة، أو أُعطيت تصنيفاً وجهة صرف.
+          عملية تُعدّ مكتملة إذا رُبطت بفاتورة، أو أُعطيت تصنيفاً وجهة صرف. لا يُحفظ شيء حتى تضغط حفظ.
         </p>
+
+        {pending.some(isDirty) && (
+          <button
+            onClick={() => saveAll(pending)}
+            disabled={saving === "all"}
+            className="w-full mb-3 text-sm btn-primary"
+          >
+            {saving === "all"
+              ? "جارٍ الحفظ..."
+              : `💾 حفظ كل التغييرات (${pending.filter(isDirty).length})`}
+          </button>
+        )}
 
         {loading ? (
           <p className="text-gray-400 text-sm">جارٍ التحميل...</p>
@@ -418,10 +553,17 @@ export default function CardStatementTab() {
                           حذف العملية
                         </button>
                         <button
-                          onClick={() => setEditing(null)}
-                          className="flex-1 text-xs btn-primary"
+                          onClick={() => {
+                            setDrafts((prev) => {
+                              const next = { ...prev };
+                              delete next[t.id];
+                              return next;
+                            });
+                            setEditing(null);
+                          }}
+                          className="flex-1 text-xs bg-gray-100 border border-gray-300 rounded py-1.5"
                         >
-                          تم
+                          إغلاق
                         </button>
                       </div>
                     </>
