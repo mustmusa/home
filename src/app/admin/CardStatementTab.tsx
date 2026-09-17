@@ -85,6 +85,193 @@ function Bars({
   );
 }
 
+
+/**
+ * Defined at module scope on purpose. Nested inside the page component these
+ * are a new function on every render, so React remounts them each keystroke
+ * and the note field loses focus after one character.
+ */
+function TxnHead({ t }: { t: Txn }) {
+  return (
+    <div className="flex justify-between items-start gap-2">
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm truncate">{t.merchant}</p>
+        <p className="text-xs text-gray-500">
+          {t.txn_date}
+          {t.status === "pending" && (
+            <span
+              className="mr-1 bg-amber-100 text-amber-700 px-1.5 rounded"
+              title="البنك لم يقيّد العملية بعد"
+            >
+              لم يقيّدها البنك بعد
+            </span>
+          )}
+        </p>
+      </div>
+      <div className="text-left whitespace-nowrap">
+        <p className="font-bold text-sm tabular-nums">{Math.abs(t.amount).toFixed(2)} ر.س</p>
+        {t.foreign_amount && (
+          <p className="text-[10px] text-gray-400">
+            {Math.abs(t.foreign_amount)} {t.foreign_currency}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TxnEditor({
+  t,
+  draft,
+  dirty,
+  saving,
+  houses,
+  purchases,
+  categoryOptions,
+  usedTargets,
+  onEdit,
+  onSave,
+  onReset,
+}: {
+  t: Txn;
+  draft: Draft;
+  dirty: boolean;
+  saving: boolean;
+  houses: House[];
+  purchases: Purchase[];
+  categoryOptions: string[];
+  usedTargets: string[];
+  onEdit: (patch: Partial<Draft>) => void;
+  onSave: () => void;
+  onReset: () => void;
+}) {
+  const targetValue =
+    draft.target_kind === "house"
+      ? `house:${draft.target_house_id ?? ""}`
+      : draft.target_kind === "other"
+        ? `other:${draft.target_label ?? ""}`
+        : (draft.target_kind ?? "");
+
+  function pickTarget(v: string) {
+    if (v === NEW_TARGET) {
+      const label = prompt("اسم بند المصاريف الجديد:")?.trim();
+      if (label) onEdit({ target_kind: "other", target_label: label, target_house_id: null });
+      return;
+    }
+    if (v.startsWith("house:"))
+      onEdit({ target_kind: "house", target_house_id: v.slice(6), target_label: null });
+    else if (v.startsWith("other:"))
+      onEdit({ target_kind: "other", target_label: v.slice(6), target_house_id: null });
+    else
+      onEdit({
+        target_kind: (v || null) as Txn["target_kind"],
+        target_house_id: null,
+        target_label: null,
+      });
+  }
+
+  const targetLabels = [
+    ...new Set([
+      ...usedTargets,
+      ...(draft.target_kind === "other" && draft.target_label ? [draft.target_label] : []),
+    ]),
+  ];
+
+  return (
+    <div className="space-y-2">
+      {t.suggestions.length > 0 && !draft.purchase_id && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-gray-500">فاتورة بنفس المبلغ والتاريخ:</p>
+          {t.suggestions.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => onEdit({ purchase_id: s.id })}
+              className="w-full text-xs border border-green-300 text-green-800 bg-green-50 rounded p-1.5 text-right"
+            >
+              اختر {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
+            </button>
+          ))}
+        </div>
+      )}
+
+      <select
+        value={draft.purchase_id ?? ""}
+        onChange={(e) => onEdit({ purchase_id: e.target.value || null })}
+        className="input text-xs w-full"
+      >
+        <option value="">🧾 بلا فاتورة</option>
+        {purchases.map((pu) => (
+          <option key={pu.id} value={pu.id}>
+            {pu.store_name} — {Number(pu.total_amount).toFixed(2)} ر.س — {pu.purchased_at.slice(0, 10)}
+          </option>
+        ))}
+      </select>
+
+      <div className="grid grid-cols-2 gap-2">
+        <select
+          value={draft.category ?? ""}
+          onChange={(e) => {
+            if (e.target.value === NEW_CATEGORY) {
+              const name = prompt("اسم التصنيف الجديد:")?.trim();
+              if (name) onEdit({ category: name });
+              return;
+            }
+            onEdit({ category: e.target.value || null });
+          }}
+          className="input text-xs"
+        >
+          <option value="">اختر تصنيفاً</option>
+          {[...new Set([...categoryOptions, ...(draft.category ? [draft.category] : [])])].map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+          <option value={NEW_CATEGORY}>➕ تصنيف جديد…</option>
+        </select>
+
+        <select value={targetValue} onChange={(e) => pickTarget(e.target.value)} className="input text-xs">
+          <option value="">جهة الصرف؟</option>
+          {houses.map((h) => (
+            <option key={h.id} value={`house:${h.id}`}>
+              🏠 {h.name}
+            </option>
+          ))}
+          <option value="personal">👤 مصاريف شخصية</option>
+          <option value="warehouse">📦 المخزن</option>
+          {targetLabels.map((lbl) => (
+            <option key={lbl} value={`other:${lbl}`}>
+              {lbl}
+            </option>
+          ))}
+          <option value={NEW_TARGET}>➕ بند جديد…</option>
+        </select>
+      </div>
+
+      <input
+        value={draft.note ?? ""}
+        onChange={(e) => onEdit({ note: e.target.value || null })}
+        placeholder="ملاحظة"
+        className="input text-xs w-full"
+      />
+
+      <div className="flex gap-2">
+        {dirty && (
+          <button onClick={onReset} className="text-xs bg-gray-100 border border-gray-300 rounded px-3 py-1.5">
+            تراجع
+          </button>
+        )}
+        <button
+          onClick={onSave}
+          disabled={!dirty || saving}
+          className="flex-1 text-xs btn-primary disabled:opacity-40"
+        >
+          {saving ? "جارٍ الحفظ..." : dirty ? "💾 حفظ" : "لا تغييرات"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function CardStatementTab() {
   const [txns, setTxns] = useState<Txn[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -257,12 +444,6 @@ export default function CardStatementTab() {
   const pending = txns.filter((t) => !isSettled(t));
   const settled = txns.filter(isSettled);
 
-  function targetValue(t: Txn) {
-    const d = draftOf(t);
-    if (d.target_kind === "house") return `house:${d.target_house_id ?? ""}`;
-    if (d.target_kind === "other") return `other:${d.target_label ?? ""}`;
-    return d.target_kind ?? "";
-  }
 
   function targetText(t: Txn) {
     if (t.target_kind === "house")
@@ -273,166 +454,6 @@ export default function CardStatementTab() {
     return null;
   }
 
-  function onTarget(t: Txn, v: string) {
-    if (v === NEW_TARGET) {
-      const label = prompt("اسم بند المصاريف الجديد:")?.trim();
-      if (label) edit(t.id, { target_kind: "other", target_label: label, target_house_id: null });
-      return;
-    }
-    if (v.startsWith("house:"))
-      edit(t.id, { target_kind: "house", target_house_id: v.slice(6), target_label: null });
-    else if (v.startsWith("other:"))
-      edit(t.id, { target_kind: "other", target_label: v.slice(6), target_house_id: null });
-    else
-      edit(t.id, {
-        target_kind: (v || null) as Txn["target_kind"],
-        target_house_id: null,
-        target_label: null,
-      });
-  }
-
-  function Editor({ t }: { t: Txn }) {
-    const d = draftOf(t);
-    const dirty = isDirty(t);
-
-    return (
-      <div className="space-y-2">
-        {t.suggestions.length > 0 && !d.purchase_id && (
-          <div className="space-y-1">
-            <p className="text-[10px] text-gray-500">فاتورة بنفس المبلغ والتاريخ:</p>
-            {t.suggestions.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => edit(t.id, { purchase_id: s.id })}
-                className="w-full text-xs border border-green-300 text-green-800 bg-green-50 rounded p-1.5 text-right"
-              >
-                اختر {s.store_name} — {Number(s.total_amount).toFixed(2)} ر.س
-              </button>
-            ))}
-          </div>
-        )}
-
-        <select
-          value={d.purchase_id ?? ""}
-          onChange={(e) => edit(t.id, { purchase_id: e.target.value || null })}
-          className="input text-xs w-full"
-        >
-          <option value="">🧾 بلا فاتورة</option>
-          {purchases.map((pu) => (
-            <option key={pu.id} value={pu.id}>
-              {pu.store_name} — {Number(pu.total_amount).toFixed(2)} ر.س — {pu.purchased_at.slice(0, 10)}
-            </option>
-          ))}
-        </select>
-
-        <div className="grid grid-cols-2 gap-2">
-          <select
-            value={d.category ?? ""}
-            onChange={(e) => {
-              if (e.target.value === NEW_CATEGORY) {
-                const name = prompt("اسم التصنيف الجديد:")?.trim();
-                if (name) edit(t.id, { category: name });
-                return;
-              }
-              edit(t.id, { category: e.target.value || null });
-            }}
-            className="input text-xs"
-          >
-            <option value="">اختر تصنيفاً</option>
-            {[...new Set([...categoryOptions, ...(d.category ? [d.category] : [])])].map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-            <option value={NEW_CATEGORY}>➕ تصنيف جديد…</option>
-          </select>
-
-          <select
-            value={targetValue(t)}
-            onChange={(e) => onTarget(t, e.target.value)}
-            className="input text-xs"
-          >
-            <option value="">جهة الصرف؟</option>
-            {houses.map((h) => (
-              <option key={h.id} value={`house:${h.id}`}>
-                🏠 {h.name}
-              </option>
-            ))}
-            <option value="personal">👤 مصاريف شخصية</option>
-            <option value="warehouse">📦 المخزن</option>
-            {[...new Set([...usedTargets, ...(d.target_kind === "other" && d.target_label ? [d.target_label] : [])])].map(
-              (lbl) => (
-                <option key={lbl} value={`other:${lbl}`}>
-                  {lbl}
-                </option>
-              )
-            )}
-            <option value={NEW_TARGET}>➕ بند جديد…</option>
-          </select>
-        </div>
-
-        <input
-          value={d.note ?? ""}
-          onChange={(e) => edit(t.id, { note: e.target.value || null })}
-          placeholder="ملاحظة"
-          className="input text-xs w-full"
-        />
-
-        <div className="flex gap-2">
-          {dirty && (
-            <button
-              onClick={() =>
-                setDrafts((prev) => {
-                  const next = { ...prev };
-                  delete next[t.id];
-                  return next;
-                })
-              }
-              className="text-xs bg-gray-100 border border-gray-300 rounded px-3 py-1.5"
-            >
-              تراجع
-            </button>
-          )}
-          <button
-            onClick={() => save(t)}
-            disabled={!dirty || saving === t.id}
-            className="flex-1 text-xs btn-primary disabled:opacity-40"
-          >
-            {saving === t.id ? "جارٍ الحفظ..." : dirty ? "💾 حفظ" : "لا تغييرات"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  function Head({ t }: { t: Txn }) {
-    return (
-      <div className="flex justify-between items-start gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm truncate">{t.merchant}</p>
-          <p className="text-xs text-gray-500">
-            {t.txn_date}
-            {t.status === "pending" && (
-              <span
-                className="mr-1 bg-amber-100 text-amber-700 px-1.5 rounded"
-                title="البنك لم يقيّد العملية بعد"
-              >
-                لم يقيّدها البنك بعد
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="text-left whitespace-nowrap">
-          <p className="font-bold text-sm tabular-nums">{Math.abs(t.amount).toFixed(2)} ر.س</p>
-          {t.foreign_amount && (
-            <p className="text-[10px] text-gray-400">
-              {Math.abs(t.foreign_amount)} {t.foreign_currency}
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -517,8 +538,26 @@ export default function CardStatementTab() {
           <div className="space-y-2">
             {pending.map((t) => (
               <div key={t.id} className="border border-amber-200 bg-amber-50/30 rounded-lg p-3 space-y-2">
-                <Head t={t} />
-                <Editor t={t} />
+                <TxnHead t={t} />
+                <TxnEditor
+                  t={t}
+                  draft={draftOf(t)}
+                  dirty={isDirty(t)}
+                  saving={saving === t.id}
+                  houses={houses}
+                  purchases={purchases}
+                  categoryOptions={categoryOptions}
+                  usedTargets={usedTargets}
+                  onEdit={(patch) => edit(t.id, patch)}
+                  onSave={() => save(t)}
+                  onReset={() =>
+                    setDrafts((prev) => {
+                      const next = { ...prev };
+                      delete next[t.id];
+                      return next;
+                    })
+                  }
+                />
               </div>
             ))}
           </div>
@@ -540,11 +579,29 @@ export default function CardStatementTab() {
               const linked = purchases.find((pu) => pu.id === t.purchase_id);
               return (
                 <div key={t.id} className="border border-gray-200 rounded-lg p-3 space-y-2">
-                  <Head t={t} />
+                  <TxnHead t={t} />
 
                   {editing === t.id ? (
                     <>
-                      <Editor t={t} />
+                      <TxnEditor
+                  t={t}
+                  draft={draftOf(t)}
+                  dirty={isDirty(t)}
+                  saving={saving === t.id}
+                  houses={houses}
+                  purchases={purchases}
+                  categoryOptions={categoryOptions}
+                  usedTargets={usedTargets}
+                  onEdit={(patch) => edit(t.id, patch)}
+                  onSave={() => save(t)}
+                  onReset={() =>
+                    setDrafts((prev) => {
+                      const next = { ...prev };
+                      delete next[t.id];
+                      return next;
+                    })
+                  }
+                />
                       <div className="flex gap-2">
                         <button
                           onClick={() => removeTxn(t.id, t.merchant)}
