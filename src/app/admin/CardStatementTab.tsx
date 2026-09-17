@@ -16,8 +16,13 @@ type Txn = {
   category: string | null;
   note: string | null;
   purchase_id: string | null;
+  target_kind: "house" | "personal" | "warehouse" | "other" | null;
+  target_house_id: string | null;
+  target_label: string | null;
   suggestions: Suggestion[];
 };
+
+type House = { id: string; name: string };
 
 type Summary = {
   count: number;
@@ -25,11 +30,13 @@ type Summary = {
   unlinkedCount: number;
   unlinkedTotal: number;
   byCategory: Record<string, number>;
+  byTarget: Record<string, number>;
 };
 
 const EXTRA_CATEGORIES = ["مواصلات", "وقود", "مطاعم", "اشتراكات", "فواتير", "صحة", "تسوق عام"];
 const BUILT_IN = [...CATEGORIES.filter((c) => c !== "أخرى"), ...EXTRA_CATEGORIES, "أخرى"];
 const NEW_CATEGORY = "__new__";
+const NEW_TARGET = "__new_target__";
 
 function thisMonth() {
   return new Date().toISOString().slice(0, 7);
@@ -45,6 +52,8 @@ export default function CardStatementTab() {
   const [error, setError] = useState<string | null>(null);
   const [onlyUnlinked, setOnlyUnlinked] = useState(false);
   const [used, setUsed] = useState<string[]>([]);
+  const [houses, setHouses] = useState<House[]>([]);
+  const [usedTargets, setUsedTargets] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,6 +64,8 @@ export default function CardStatementTab() {
       setTxns(data.transactions ?? []);
       setSummary(data.summary ?? null);
       setUsed(data.usedCategories ?? []);
+      setHouses(data.houses ?? []);
+      setUsedTargets(data.usedTargets ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "خطأ غير متوقع");
     } finally {
@@ -101,6 +112,14 @@ export default function CardStatementTab() {
               note: body.note !== undefined ? (body.note as string) : t.note,
               purchase_id:
                 body.purchaseId !== undefined ? (body.purchaseId as string) : t.purchase_id,
+              target_kind:
+                body.targetKind !== undefined ? (body.targetKind as Txn["target_kind"]) : t.target_kind,
+              target_house_id:
+                body.targetHouseId !== undefined
+                  ? (body.targetHouseId as string)
+                  : t.target_house_id,
+              target_label:
+                body.targetLabel !== undefined ? (body.targetLabel as string) : t.target_label,
             }
           : t
       )
@@ -166,8 +185,31 @@ export default function CardStatementTab() {
             </div>
           </div>
 
+          {Object.keys(summary.byTarget).length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-semibold text-gray-600 mb-1">حسب جهة الصرف</p>
+              <div className="space-y-1">
+                {Object.entries(summary.byTarget)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([target, amount]) => (
+                    <div key={target} className="flex items-center gap-2 text-xs">
+                      <span className="w-28 shrink-0 truncate">{target}</span>
+                      <div className="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+                        <div
+                          className={target === "بلا جهة" ? "h-full bg-gray-400" : "h-full bg-emerald-500"}
+                          style={{ width: `${(amount / summary.totalSpend) * 100}%` }}
+                        />
+                      </div>
+                      <span className="w-16 text-left font-semibold">{amount.toFixed(2)}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           {Object.keys(summary.byCategory).length > 0 && (
             <div className="space-y-1">
+              <p className="text-xs font-semibold text-gray-600 mb-1">حسب التصنيف</p>
               {Object.entries(summary.byCategory)
                 .sort((a, b) => b[1] - a[1])
                 .map(([cat, amount]) => (
@@ -225,7 +267,12 @@ export default function CardStatementTab() {
                     <p className="text-xs text-gray-500">
                       {t.txn_date}
                       {t.status === "pending" && (
-                        <span className="mr-1 bg-amber-100 text-amber-700 px-1.5 rounded">معلّقة</span>
+                        <span
+                          className="mr-1 bg-amber-100 text-amber-700 px-1.5 rounded"
+                          title="البنك لم يقيّد العملية بعد — لا علاقة لها بتفاصيلك"
+                        >
+                          لم يقيّدها البنك بعد
+                        </span>
                       )}
                       {t.purchase_id && (
                         <span className="mr-1 bg-green-100 text-green-700 px-1.5 rounded">مرتبطة بفاتورة</span>
@@ -290,6 +337,49 @@ export default function CardStatementTab() {
                       className="input text-xs"
                     />
                   </div>
+                )}
+
+                {!t.purchase_id && (
+                  <select
+                    value={
+                      t.target_kind === "house"
+                        ? `house:${t.target_house_id ?? ""}`
+                        : t.target_kind === "other"
+                          ? `other:${t.target_label ?? ""}`
+                          : t.target_kind ?? ""
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === NEW_TARGET) {
+                        const label = prompt("اسم بند المصاريف الجديد:")?.trim();
+                        if (label) patch(t.id, { targetKind: "other", targetLabel: label });
+                        return;
+                      }
+                      if (v.startsWith("house:")) {
+                        patch(t.id, { targetKind: "house", targetHouseId: v.slice(6) });
+                      } else if (v.startsWith("other:")) {
+                        patch(t.id, { targetKind: "other", targetLabel: v.slice(6) });
+                      } else {
+                        patch(t.id, { targetKind: v || null });
+                      }
+                    }}
+                    className="input text-xs w-full"
+                  >
+                    <option value="">جهة الصرف؟</option>
+                    {houses.map((h) => (
+                      <option key={h.id} value={`house:${h.id}`}>
+                        🏠 {h.name}
+                      </option>
+                    ))}
+                    <option value="personal">👤 مصاريف شخصية</option>
+                    <option value="warehouse">📦 المخزن</option>
+                    {usedTargets.map((lbl) => (
+                      <option key={lbl} value={`other:${lbl}`}>
+                        {lbl}
+                      </option>
+                    ))}
+                    <option value={NEW_TARGET}>➕ بند مصاريف جديد…</option>
+                  </select>
                 )}
               </div>
             ))}

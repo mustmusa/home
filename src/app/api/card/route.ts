@@ -30,6 +30,8 @@ export async function GET(req: NextRequest) {
     const { data: txns, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    const { data: houses } = await db.from("houses").select("id, name");
+
     const { data: purchases } = await db
       .from("purchases")
       .select("id, store_name, total_amount, purchased_at")
@@ -64,13 +66,38 @@ export async function GET(req: NextRequest) {
       byCategory[key] = (byCategory[key] ?? 0) + Math.abs(Number(t.amount));
     }
 
+    const houseName = new Map((houses ?? []).map((h) => [h.id, h.name]));
+    const targetLabel = (t: { target_kind: string | null; target_house_id: string | null; target_label: string | null }) => {
+      if (t.target_kind === "house") return houseName.get(t.target_house_id ?? "") ?? "بيت";
+      if (t.target_kind === "personal") return "مصاريف شخصية";
+      if (t.target_kind === "warehouse") return "المخزن";
+      if (t.target_kind === "other") return t.target_label || "أخرى";
+      return "بلا جهة";
+    };
+
+    const byTarget: Record<string, number> = {};
+    for (const t of spend) {
+      const key = targetLabel(t);
+      byTarget[key] = (byTarget[key] ?? 0) + Math.abs(Number(t.amount));
+    }
+
+    const usedTargets = [
+      ...new Set(
+        (txns ?? [])
+          .filter((t) => t.target_kind === "other" && t.target_label)
+          .map((t) => t.target_label as string)
+      ),
+    ].sort();
+
     const usedCategories = [
       ...new Set((txns ?? []).map((t) => t.category).filter((c): c is string => !!c)),
     ].sort();
 
     return NextResponse.json({
       transactions: withSuggestions,
+      houses: houses ?? [],
       usedCategories,
+      usedTargets,
       summary: {
         count: txns?.length ?? 0,
         totalSpend: Number(totalSpend.toFixed(2)),
@@ -79,6 +106,7 @@ export async function GET(req: NextRequest) {
           unlinked.reduce((s, t) => s + Math.abs(Number(t.amount)), 0).toFixed(2)
         ),
         byCategory,
+        byTarget,
       },
     });
   } catch (e) {
@@ -109,6 +137,15 @@ export async function PATCH(req: NextRequest) {
     }
     if (body.purchaseId !== undefined) {
       patch.purchase_id = body.purchaseId || null;
+    }
+    if (body.targetKind !== undefined) {
+      const kind = body.targetKind || null;
+      if (kind && !["house", "personal", "warehouse", "other"].includes(kind)) {
+        return NextResponse.json({ error: "جهة غير معروفة" }, { status: 400 });
+      }
+      patch.target_kind = kind;
+      patch.target_house_id = kind === "house" ? body.targetHouseId || null : null;
+      patch.target_label = kind === "other" ? String(body.targetLabel || "").trim() || null : null;
     }
 
     if (Object.keys(patch).length === 1) {
