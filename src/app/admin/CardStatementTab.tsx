@@ -3,7 +3,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { CATEGORIES } from "@/lib/types";
 
-type Purchase = { id: string; store_name: string; total_amount: number; purchased_at: string };
+type Purchase = {
+  id: string;
+  store_name: string;
+  total_amount: number;
+  purchased_at: string;
+  purchase_lines?: { item_name: string }[];
+};
+
+/** "متجر" identifies nothing, so the invoice's own items name it instead. */
+function purchaseLabel(pu: Purchase) {
+  const items = (pu.purchase_lines ?? []).map((l) => l.item_name).filter(Boolean);
+  const hint = items.length
+    ? ` (${items.slice(0, 3).join("، ")}${items.length > 3 ? ` +${items.length - 3}` : ""})`
+    : "";
+  return `${pu.store_name}${hint} — ${Number(pu.total_amount).toFixed(2)} ر.س — ${pu.purchased_at.slice(0, 10)}`;
+}
 type House = { id: string; name: string };
 
 type Txn = {
@@ -202,7 +217,7 @@ function TxnEditor({
         <option value="">🧾 بلا فاتورة</option>
         {purchases.map((pu) => (
           <option key={pu.id} value={pu.id}>
-            {pu.store_name} — {Number(pu.total_amount).toFixed(2)} ر.س — {pu.purchased_at.slice(0, 10)}
+            {purchaseLabel(pu)}
           </option>
         ))}
       </select>

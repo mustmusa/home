@@ -86,7 +86,7 @@ export default function NewInvoiceTab() {
   const [sessionId] = useState(() => crypto.randomUUID());
   const [uploadedBatches, setUploadedBatches] = useState<number>(0);
   const [totalExtractedLines, setTotalExtractedLines] = useState<number>(0);
-  const [storeName, setStoreName] = useState<string>("متجر");
+  const [storeName, setStoreName] = useState<string>("");
   const [finalizingInProgress, setFinalizingInProgress] = useState(false);
 
   // الصور المتجمّعة قبل الإرسال (تصوير مباشر متكرر و/أو اختيار من المعرض معًا)
@@ -207,6 +207,7 @@ export default function NewInvoiceTab() {
         batchNumber?: number;
         lineCount?: number;
         imagePaths?: string[];
+        storeName?: string | null;
       };
       let data: BatchResponse;
 
@@ -240,6 +241,8 @@ export default function NewInvoiceTab() {
       }
 
       if (data.success) {
+        // Only fills an empty field, so a name typed by hand is never replaced.
+        if (data.storeName && !storeName.trim()) setStoreName(data.storeName);
         const newBatchCount = uploadedBatches + 1;
         const newLineCount = totalExtractedLines + (data.lineCount ?? 0);
         setUploadedBatches(newBatchCount);

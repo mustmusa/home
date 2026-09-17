@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
     const { data: purchases } = await db
       .from("purchases")
-      .select("id, store_name, total_amount, purchased_at")
+      .select("id, store_name, total_amount, purchased_at, purchase_lines(item_name)")
       .order("purchased_at", { ascending: false })
       .limit(300);
 

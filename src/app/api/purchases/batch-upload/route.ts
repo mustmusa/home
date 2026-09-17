@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
-import { extractInvoiceLines } from "@/lib/anthropic";
+import { extractInvoiceLines, readStoreName } from "@/lib/anthropic";
 import { errorMessage } from "@/lib/errors";
 
 const ALLOWED_TYPES: Record<string, "image/jpeg" | "image/png" | "image/webp"> = {
@@ -71,12 +71,20 @@ export async function POST(req: NextRequest) {
   }));
 
   // استخرج البيانات من الصور
+  const encoded = prepared.map((p) => ({
+    base64: Buffer.from(p.bytes).toString("base64"),
+    mediaType: p.mediaType,
+  }));
+
   let lines;
+  let storeName: string | null = null;
   try {
-    lines = await extractInvoiceLines(
-      prepared.map((p) => ({ base64: Buffer.from(p.bytes).toString("base64"), mediaType: p.mediaType })),
-      pendingForMatch,
-    );
+    // The shop name is read alongside the lines, not from them — its own call
+    // so that failing to find it never costs the caller the invoice.
+    [lines, storeName] = await Promise.all([
+      extractInvoiceLines(encoded, pendingForMatch),
+      readStoreName(encoded),
+    ]);
   } catch (e) {
     return NextResponse.json({ error: "تعذّر قراءة الفاتورة: " + errorMessage(e) }, { status: 502 });
   }
@@ -114,6 +122,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
+    storeName,
     batchNumber,
     lineCount: (lines ?? []).length,
     imagePaths,
