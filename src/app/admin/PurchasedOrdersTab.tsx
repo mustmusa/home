@@ -3,6 +3,17 @@
 import { useEffect, useState } from "react";
 import { CATEGORIES, type House } from "@/lib/types";
 
+type DuplicateCandidate = {
+  id: string;
+  store_name: string;
+  total: number;
+  items: number;
+  created_at: string;
+  has_image: boolean;
+  reason: string;
+  keeps: { id: string; total: number; items: number; created_at: string } | null;
+};
+
 type InvoiceCard = {
   purchase_id: string;
   store_name: string;
@@ -36,6 +47,10 @@ export default function PurchasedOrdersTab() {
   const [viewer, setViewer] = useState<{ title: string; urls: string[] } | null>(null);
   const [viewerLoading, setViewerLoading] = useState<string | null>(null);
   const [viewerError, setViewerError] = useState<string | null>(null);
+  const [dups, setDups] = useState<DuplicateCandidate[] | null>(null);
+  const [dupSelected, setDupSelected] = useState<Set<string>>(new Set());
+  const [dupBusy, setDupBusy] = useState(false);
+  const [dupMsg, setDupMsg] = useState<string | null>(null);
 
   useEffect(() => {
     loadHouses();
@@ -182,6 +197,54 @@ export default function PurchasedOrdersTab() {
     }
   }
 
+  async function scanDuplicates() {
+    setDupBusy(true);
+    setDupMsg(null);
+    try {
+      const res = await fetch("/api/purchases/duplicates");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل الفحص");
+      const found: DuplicateCandidate[] = data.duplicates || [];
+      setDups(found);
+      setDupSelected(new Set(found.map((d) => d.id)));
+      if (found.length === 0) setDupMsg(`لا توجد فواتير مكررة (فُحصت ${data.scanned} فاتورة)`);
+    } catch (e) {
+      setDupMsg(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setDupBusy(false);
+    }
+  }
+
+  async function deleteDuplicates() {
+    const ids = Array.from(dupSelected);
+    if (ids.length === 0) return;
+    if (!confirm(`حذف ${ids.length} فاتورة مكررة نهائياً؟`)) return;
+    setDupBusy(true);
+    setDupMsg(null);
+    try {
+      const res = await fetch("/api/purchases/duplicates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل الحذف");
+      const failed = (data.failed || []).length;
+      setDupMsg(
+        `حُذفت ${data.deleted} فاتورة` +
+          (data.skipped ? ` • تُخطّيت ${data.skipped} (لم تعد مكررة)` : "") +
+          (failed ? ` • فشل ${failed}` : "")
+      );
+      setDups(null);
+      setDupSelected(new Set());
+      load();
+    } catch (e) {
+      setDupMsg(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setDupBusy(false);
+    }
+  }
+
   async function removeInvoice(invoice: InvoiceCard) {
     const ok = confirm(
       `حذف فاتورة «${invoice.store_name}» بقيمة ${invoice.total.toFixed(2)} ريال و${invoice.items.length} عنصر؟\n\n` +
@@ -279,6 +342,69 @@ export default function PurchasedOrdersTab() {
       {viewerError && (
         <p className="text-red-600 text-xs text-center">{viewerError}</p>
       )}
+
+      {/* Duplicate cleanup */}
+      <section className="card">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-bold text-sm">🔎 الفواتير المكررة</h2>
+          <button onClick={scanDuplicates} disabled={dupBusy} className="text-xs btn-primary px-3">
+            {dupBusy ? "جارٍ..." : "افحص الآن"}
+          </button>
+        </div>
+        {dupMsg && <p className="text-xs text-gray-600 mt-2">{dupMsg}</p>}
+
+        {dups && dups.length > 0 && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs text-gray-500">
+              وُجدت {dups.length} فاتورة مكررة. تُبقى دائماً النسخة المؤكَّدة (الأحدث) وتُحذف الباقي.
+            </p>
+            {dups.map((d) => (
+              <label
+                key={d.id}
+                className="flex items-start gap-2 border border-gray-100 rounded p-2 bg-gray-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={dupSelected.has(d.id)}
+                  onChange={(e) => {
+                    const next = new Set(dupSelected);
+                    if (e.target.checked) next.add(d.id);
+                    else next.delete(d.id);
+                    setDupSelected(next);
+                  }}
+                  className="mt-1"
+                />
+                <div className="flex-1 text-xs">
+                  <p className="font-semibold">
+                    🧾 {d.store_name} — {d.total.toFixed(2)} ريال • {d.items} عنصر
+                  </p>
+                  <p className="text-gray-500">
+                    {new Date(d.created_at).toLocaleString("ar-SA")} • {d.reason}
+                    {d.has_image && " • فيها صورة"}
+                  </p>
+                  {d.keeps && (
+                    <p className="text-green-700">
+                      تبقى: {d.keeps.total.toFixed(2)} ريال • {d.keeps.items} عنصر (
+                      {new Date(d.keeps.created_at).toLocaleTimeString("ar-SA", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      )
+                    </p>
+                  )}
+                </div>
+              </label>
+            ))}
+            <button
+              onClick={deleteDuplicates}
+              disabled={dupBusy || dupSelected.size === 0}
+              className="w-full text-xs text-red-600 border border-red-300 rounded p-2 font-semibold"
+            >
+              🗑️ حذف المحدد ({dupSelected.size})
+            </button>
+          </div>
+        )}
+      </section>
 
       {/* One card per invoice, newest first */}
       <section className="card">
