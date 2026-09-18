@@ -23,24 +23,29 @@ export async function GET(req: NextRequest) {
 
   const db = supabaseServer();
 
-  let query = db
-    .from("purchases")
-    .select("*, purchase_lines(*)")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  // The house check here used to read the house row and then drop it, leaving
+  // the query unfiltered — every household received every other household's
+  // purchases. An inner join on the lines constrains both the purchases
+  // returned and the lines embedded in them.
+  const isAdmin = session.role === "admin";
 
-  // إذا كان المستخدم admin، أظهر جميع المشتريات
-  // وإلا، أظهر المشتريات فقط التي تتعلق ببيت المستخدم
-  if (session.role !== "admin") {
-    const { data: houses } = await db
-      .from("houses")
-      .select("id")
-      .eq("id", session.houseId);
-
-    if (!houses || houses.length === 0) {
-      return NextResponse.json({ purchases: [] });
-    }
+  if (!isAdmin && !session.houseId) {
+    return NextResponse.json({ purchases: [] });
   }
+
+  const query = isAdmin
+    ? db
+        .from("purchases")
+        .select("*, purchase_lines(*)")
+        .order("created_at", { ascending: false })
+        .limit(limit)
+    : db
+        .from("purchases")
+        .select("*, purchase_lines!inner(*)")
+        .eq("purchase_lines.destination", "house")
+        .eq("purchase_lines.house_id", session.houseId)
+        .order("created_at", { ascending: false })
+        .limit(limit);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

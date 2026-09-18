@@ -102,7 +102,10 @@ export default function WifeDashboard() {
         const date = p.created_at.slice(0, 10);
         const items = (p.purchase_lines || []).filter((l: any) => {
           // عرض العناصر المطابقة مع الطلبات أو العناصر المخصصة للبيت
-          return l.destination === "house" && (l.house_id === currentUser.house_id || l.matched_request_id);
+          // Never widen this to "or it matched a request": a matched line
+          // belongs to whichever house it was bought for, and that clause
+          // showed one household's shopping to the other.
+          return l.destination === "house" && l.house_id === currentUser.house_id;
         });
 
         if (items.length > 0) {
