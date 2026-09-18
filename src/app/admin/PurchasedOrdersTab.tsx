@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { CATEGORIES, type House } from "@/lib/types";
 
-type StoreGroup = {
+type InvoiceCard = {
+  purchase_id: string;
   store_name: string;
-  purchase_ids: string[];
   total: number;
-  item_count: number;
+  created_at: string;
+  image_paths: string[];
+  is_manual: boolean;
   items: Array<{
     id: string;
     name: string;
@@ -22,7 +24,7 @@ type StoreGroup = {
 
 type DateGroup = {
   date: string;
-  stores: StoreGroup[];
+  invoices: InvoiceCard[];
   totalAmount: number;
   totalItems: number;
 };
@@ -38,6 +40,9 @@ export default function PurchasedOrdersTab() {
   const [rowError, setRowError] = useState<string | null>(null);
   const [editingStore, setEditingStore] = useState<string | null>(null);
   const [storeDraft, setStoreDraft] = useState("");
+  const [viewer, setViewer] = useState<{ title: string; urls: string[] } | null>(null);
+  const [viewerLoading, setViewerLoading] = useState<string | null>(null);
+  const [viewerError, setViewerError] = useState<string | null>(null);
 
   useEffect(() => {
     loadHouses();
@@ -61,25 +66,19 @@ export default function PurchasedOrdersTab() {
       const data = await res.json();
       const purchases = data.purchases || [];
 
-      // Group by date and store
+      // Each purchase is its own invoice card. Purchases that share a store
+      // and a day used to be merged into one card, which made a single
+      // invoice impossible to open, rename or trace back to its image.
       const grouped: Record<string, DateGroup> = {};
 
       purchases.forEach((p: any) => {
         const date = p.created_at.slice(0, 10);
         if (!grouped[date]) {
-          grouped[date] = {
-            date,
-            stores: [],
-            totalAmount: 0,
-            totalItems: 0,
-          };
+          grouped[date] = { date, invoices: [], totalAmount: 0, totalItems: 0 };
         }
 
-        const storeGroup = grouped[date].stores.find(
-          (s) => s.store_name === (p.store_name || "متجر")
-        );
-
-        const items = (p.purchase_lines || []).map((l: any) => ({
+        const lines = p.purchase_lines || [];
+        const items = lines.map((l: any) => ({
           id: l.id,
           name: l.item_name,
           qty: l.quantity,
@@ -90,20 +89,15 @@ export default function PurchasedOrdersTab() {
           category: l.category ?? null,
         }));
 
-        if (storeGroup) {
-          storeGroup.purchase_ids.push(p.id);
-          storeGroup.items.push(...items);
-          storeGroup.total += p.total_amount;
-          storeGroup.item_count += items.length;
-        } else {
-          grouped[date].stores.push({
-            purchase_ids: [p.id],
-            store_name: p.store_name || "متجر",
-            total: p.total_amount,
-            item_count: items.length,
-            items,
-          });
-        }
+        grouped[date].invoices.push({
+          purchase_id: p.id,
+          store_name: p.store_name || "متجر",
+          total: p.total_amount,
+          created_at: p.created_at,
+          image_paths: Array.isArray(p.invoice_image_paths) ? p.invoice_image_paths : [],
+          is_manual: lines.some((l: any) => l.source === "manual"),
+          items,
+        });
 
         grouped[date].totalAmount += p.total_amount;
         grouped[date].totalItems += items.length;
@@ -127,6 +121,27 @@ export default function PurchasedOrdersTab() {
     if (newExpanded.has(date)) newExpanded.delete(date);
     else newExpanded.add(date);
     setExpandedDates(newExpanded);
+  }
+
+  async function openImages(invoice: InvoiceCard) {
+    setViewerError(null);
+    setViewerLoading(invoice.purchase_id);
+    try {
+      // Signed URLs expire, so they are fetched on demand rather than stored.
+      const urls = await Promise.all(
+        invoice.image_paths.map(async (path) => {
+          const res = await fetch(`/api/purchases/image-url?path=${encodeURIComponent(path)}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "تعذّر فتح الصورة");
+          return data.url as string;
+        })
+      );
+      setViewer({ title: invoice.store_name, urls });
+    } catch (e) {
+      setViewerError(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setViewerLoading(null);
+    }
   }
 
   async function updateItemDestination(lineId: string, destination: "house" | "warehouse", houseId?: string) {
@@ -171,15 +186,13 @@ export default function PurchasedOrdersTab() {
     });
   }
 
-  async function saveStoreName(ids: string[]) {
-    const key = ids.join(",");
-    setUpdating(key);
+  async function saveStoreName(purchaseId: string) {
+    setUpdating(purchaseId);
     try {
-      const [first, ...rest] = ids;
-      const res = await fetch(`/api/purchases/${first}`, {
+      const res = await fetch(`/api/purchases/${purchaseId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeName: storeDraft, alsoIds: rest }),
+        body: JSON.stringify({ storeName: storeDraft }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "فشل التعديل");
@@ -239,7 +252,7 @@ export default function PurchasedOrdersTab() {
 
   const stats = {
     totalDays: dateGroups.length,
-    totalPurchases: dateGroups.reduce((sum, d) => sum + d.stores.length, 0),
+    totalPurchases: dateGroups.reduce((sum, d) => sum + d.invoices.length, 0),
     totalSpent: dateGroups.reduce((sum, d) => sum + d.totalAmount, 0),
   };
 
@@ -256,7 +269,7 @@ export default function PurchasedOrdersTab() {
             <p className="text-2xl font-bold text-purple-600">{stats.totalDays}</p>
           </div>
           <div className="text-center p-3 bg-emerald-50 rounded-lg">
-            <p className="text-xs text-gray-600">المشتريات</p>
+            <p className="text-xs text-gray-600">الفواتير</p>
             <p className="text-2xl font-bold text-emerald-600">{stats.totalPurchases}</p>
           </div>
           <div className="text-center p-3 bg-orange-50 rounded-lg">
@@ -265,6 +278,10 @@ export default function PurchasedOrdersTab() {
           </div>
         </div>
       </section>
+
+      {viewerError && (
+        <p className="text-red-600 text-xs text-center">{viewerError}</p>
+      )}
 
       {/* History by Date */}
       <section className="card">
@@ -290,7 +307,7 @@ export default function PurchasedOrdersTab() {
                       })}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      {dateGroup.stores.length} متاجر • {dateGroup.totalItems} عنصر
+                      {dateGroup.invoices.length} فاتورة • {dateGroup.totalItems} عنصر
                     </p>
                   </div>
                   <div className="text-right ml-4">
@@ -303,17 +320,17 @@ export default function PurchasedOrdersTab() {
                   </div>
                 </button>
 
-                {/* Stores Details */}
+                {/* One card per invoice */}
                 {expandedDates.has(dateGroup.date) && (
                   <div className="bg-gray-50 p-3 space-y-3 border-t border-gray-200">
-                    {dateGroup.stores.map((store, idx) => (
+                    {dateGroup.invoices.map((invoice) => (
                       <div
-                        key={idx}
+                        key={invoice.purchase_id}
                         className="bg-white border border-gray-100 rounded-lg p-3 space-y-2"
                       >
-                        {/* Store Header */}
+                        {/* Invoice Header */}
                         <div className="flex justify-between items-start gap-2">
-                          {editingStore === store.purchase_ids.join(",") ? (
+                          {editingStore === invoice.purchase_id ? (
                             <div className="flex-1 flex gap-1">
                               <input
                                 value={storeDraft}
@@ -323,8 +340,8 @@ export default function PurchasedOrdersTab() {
                                 autoFocus
                               />
                               <button
-                                onClick={() => saveStoreName(store.purchase_ids)}
-                                disabled={updating === store.purchase_ids.join(",")}
+                                onClick={() => saveStoreName(invoice.purchase_id)}
+                                disabled={updating === invoice.purchase_id}
                                 className="text-xs btn-primary px-3"
                               >
                                 حفظ
@@ -339,25 +356,54 @@ export default function PurchasedOrdersTab() {
                           ) : (
                             <button
                               onClick={() => {
-                                setEditingStore(store.purchase_ids.join(","));
-                                setStoreDraft(store.store_name);
+                                setEditingStore(invoice.purchase_id);
+                                setStoreDraft(invoice.store_name);
                               }}
                               className="font-semibold text-sm text-right hover:text-primary"
                               title="اضغط لتعديل اسم المتجر"
                             >
-                              🛒 {store.store_name} <span className="text-gray-400 text-xs">✏️</span>
+                              🧾 {invoice.store_name} <span className="text-gray-400 text-xs">✏️</span>
                             </button>
                           )}
                           <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded whitespace-nowrap">
-                            {store.total.toFixed(2)} ريال
+                            {invoice.total.toFixed(2)} ريال
                           </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-[11px] text-gray-400">
+                            {invoice.items.length} عنصر •{" "}
+                            {new Date(invoice.created_at).toLocaleTimeString("ar-SA", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                          {invoice.image_paths.length > 0 ? (
+                            <button
+                              onClick={() => openImages(invoice)}
+                              disabled={viewerLoading === invoice.purchase_id}
+                              className="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1"
+                            >
+                              {viewerLoading === invoice.purchase_id
+                                ? "جارٍ الفتح..."
+                                : `📷 عرض صورة الفاتورة${
+                                    invoice.image_paths.length > 1
+                                      ? ` (${invoice.image_paths.length})`
+                                      : ""
+                                  }`}
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-gray-400">
+                              {invoice.is_manual ? "✍️ إدخال يدوي" : "بدون صورة"}
+                            </span>
+                          )}
                         </div>
 
                         {/* Items List */}
                         <div className="space-y-2">
-                          {store.items.map((item, i) => (
+                          {invoice.items.map((item) => (
                             <div
-                              key={i}
+                              key={item.id}
                               className="text-xs text-gray-600 py-2 px-2 border border-gray-100 rounded bg-gray-50"
                             >
                               {editingId === item.id ? (
@@ -482,11 +528,11 @@ export default function PurchasedOrdersTab() {
                           ))}
                         </div>
 
-                        {/* Store Total */}
+                        {/* Invoice Total */}
                         <div className="flex justify-between pt-2 border-t border-gray-200">
                           <span className="text-xs font-semibold">الإجمالي:</span>
                           <span className="text-xs font-bold text-green-600">
-                            {store.total.toFixed(2)}
+                            {invoice.total.toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -498,6 +544,37 @@ export default function PurchasedOrdersTab() {
           </div>
         )}
       </section>
+
+      {/* Invoice image viewer */}
+      {viewer && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 overflow-y-auto p-4"
+          onClick={() => setViewer(null)}
+        >
+          <div className="max-w-2xl mx-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3 sticky top-0">
+              <span className="text-white text-sm font-semibold">🧾 {viewer.title}</span>
+              <button
+                onClick={() => setViewer(null)}
+                className="text-white bg-white/20 rounded-full w-8 h-8 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-3 pb-6">
+              {viewer.urls.map((url, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={url}
+                  alt={`صورة الفاتورة ${i + 1}`}
+                  className="w-full rounded-lg bg-white"
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
