@@ -182,6 +182,26 @@ export default function PurchasedOrdersTab() {
     }
   }
 
+  async function removeInvoice(invoice: InvoiceCard) {
+    const ok = confirm(
+      `حذف فاتورة «${invoice.store_name}» بقيمة ${invoice.total.toFixed(2)} ريال و${invoice.items.length} عنصر؟\n\n` +
+        "سيُحذف كل ما فيها، وتعود الطلبات المرتبطة بها إلى «معلّقة»، ويُخصم ما أُضيف منها للمخزون.\n" +
+        "لا يمكن التراجع."
+    );
+    if (!ok) return;
+    setUpdating(invoice.purchase_id);
+    try {
+      const res = await fetch(`/api/purchases/${invoice.purchase_id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل الحذف");
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setUpdating(null);
+    }
+  }
+
   async function saveLine(lineId: string) {
     setUpdating(lineId);
     setRowError(null);
@@ -344,7 +364,7 @@ export default function PurchasedOrdersTab() {
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-end gap-2 flex-wrap">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
                           {invoice.image_paths.length > 0 ? (
                             <button
                               onClick={() => openImages(invoice)}
@@ -364,6 +384,13 @@ export default function PurchasedOrdersTab() {
                               {invoice.is_manual ? "✍️ إدخال يدوي" : "بدون صورة"}
                             </span>
                           )}
+                          <button
+                            onClick={() => removeInvoice(invoice)}
+                            disabled={updating === invoice.purchase_id}
+                            className="text-xs text-red-600 border border-red-200 rounded px-2 py-1"
+                          >
+                            {updating === invoice.purchase_id ? "جارٍ الحذف..." : "🗑️ حذف الفاتورة"}
+                          </button>
                         </div>
 
                         {/* Items List */}
