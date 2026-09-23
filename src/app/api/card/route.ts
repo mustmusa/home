@@ -176,11 +176,23 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
   try {
-    const { id } = await req.json();
-    if (!id) return NextResponse.json({ error: "معرّف العملية مفقود" }, { status: 400 });
-    const { error } = await supabaseServer().from("card_transactions").delete().eq("id", id);
+    const body = await req.json();
+    // One id, or many — an import of the wrong statement is undone in one go.
+    const ids: string[] = Array.isArray(body.ids)
+      ? body.ids.map(String).filter(Boolean)
+      : body.id
+        ? [String(body.id)]
+        : [];
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "معرّف العملية مفقود" }, { status: 400 });
+    }
+    const { data, error } = await supabaseServer()
+      .from("card_transactions")
+      .delete()
+      .in("id", ids)
+      .select("id");
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, deleted: data?.length ?? 0 });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },

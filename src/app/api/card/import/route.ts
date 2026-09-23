@@ -25,7 +25,17 @@ type Txn = {
   status?: "pending" | "posted";
 };
 
-const PROMPT = `هذا كشف حساب بطاقة ائتمانية سعودية. استخرج كل عملية فيه.
+const PROMPT = `هذا ملف PDF يُفترض أنه كشف حساب بطاقة ائتمانية سعودية.
+
+أولاً حدّد نوع المستند:
+- "card": كشف بطاقة ائتمانية (فيه حد ائتماني، أو رقم بطاقة، أو الحد الأدنى للسداد، أو "كشف حساب البطاقة")
+- "account": كشف حساب جارٍ/بنكي (فيه رقم حساب أو IBAN ورصيد افتتاحي ومدين/دائن وحوالات ورواتب)
+- "other": أي شيء آخر
+
+إن لم يكن "card" فأعد فقط: {"doc_type":"account","doc_hint":"سطر واحد يصف ما رأيته"}
+ولا تستخرج أي عملية.
+
+إن كان كشف بطاقة، استخرج كل عملية فيه.
 
 لكل عملية أعطني:
 - txn_date: تاريخ العملية بصيغة YYYY-MM-DD
@@ -41,7 +51,7 @@ const PROMPT = `هذا كشف حساب بطاقة ائتمانية سعودية.
 - المبالغ أرقام بلا رمز عملة أو فواصل آلاف
 
 أعد JSON فقط:
-{"card_last4":"1649","transactions":[{"txn_date":"2026-09-17","posted_date":null,"merchant":"...","amount":-24.00,"foreign_amount":null,"foreign_currency":null,"status":"posted"}]}`;
+{"doc_type":"card","card_last4":"1649","transactions":[{"txn_date":"2026-09-17","posted_date":null,"merchant":"...","amount":-24.00,"foreign_amount":null,"foreign_currency":null,"status":"posted"}]}`;
 
 function fingerprint(t: Txn) {
   return createHash("sha256")
@@ -89,7 +99,7 @@ async function handle(req: NextRequest) {
     .map((b) => b.text)
     .join("");
 
-  let parsed: { card_last4?: string; transactions?: Txn[] };
+  let parsed: { doc_type?: string; doc_hint?: string; card_last4?: string; transactions?: Txn[] };
   try {
     parsed = JSON.parse(text.trim());
   } catch {
@@ -101,6 +111,24 @@ async function handle(req: NextRequest) {
       );
     }
     parsed = JSON.parse(m[0]);
+  }
+
+  // A current-account statement reads as a perfectly good list of transactions,
+  // so nothing downstream would have caught it: it has to be refused here,
+  // before a single row is written.
+  if (parsed.doc_type && parsed.doc_type !== "card") {
+    const what =
+      parsed.doc_type === "account" ? "كشف حساب جارٍ/بنكي" : "مستند غير معروف";
+    return NextResponse.json(
+      {
+        error:
+          `هذا ${what}، وليس كشف بطاقة ائتمانية — لم يُستورد شيء.` +
+          (parsed.doc_hint ? `\n(${parsed.doc_hint})` : "") +
+          "\nارفع كشف البطاقة الائتمانية.",
+        docType: parsed.doc_type,
+      },
+      { status: 400 }
+    );
   }
 
   const txns = (parsed.transactions ?? []).filter(
@@ -150,6 +178,7 @@ async function handle(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    docType: "card",
     read: txns.length,
     added: inserted?.length ?? 0,
     alreadyKnown: txns.length - (inserted?.length ?? 0),

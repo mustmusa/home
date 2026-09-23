@@ -393,6 +393,8 @@ export default function CardStatementTab() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Partial<Draft>>>({});
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -431,7 +433,8 @@ export default function CardStatementTab() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "فشل الاستيراد");
       setMsg(
-        `قرأ ${data.read} عملية — أضاف ${data.added}، و${data.alreadyKnown} كانت موجودة` +
+        `✅ كشف بطاقة ائتمانية${data.cardLast4 ? ` (••${data.cardLast4})` : ""} — ` +
+          `قرأ ${data.read} عملية، أضاف ${data.added}، و${data.alreadyKnown} كانت موجودة` +
           (data.staleRemoved ? `، وأزال ${data.staleRemoved} تفويضاً انتهى` : "")
       );
       e.target.value = "";
@@ -533,6 +536,25 @@ export default function CardStatementTab() {
     }
   }
 
+  async function removeMany(ids: string[]) {
+    if (ids.length === 0) return;
+    if (!confirm(`حذف ${ids.length} عملية من السجل نهائياً؟`)) return;
+    const res = await fetch("/api/card", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "فشل الحذف");
+    } else {
+      setMsg(`حُذفت ${data.deleted} عملية`);
+      setPicked(new Set());
+      setPicking(false);
+    }
+    load();
+  }
+
   async function removeTxn(id: string, merchant: string) {
     if (!confirm(`حذف عملية «${merchant}» من السجل؟`)) return;
     const res = await fetch("/api/card", {
@@ -625,6 +647,43 @@ export default function CardStatementTab() {
           عملية تُعدّ مكتملة إذا رُبطت بفاتورة، أو أُعطيت تصنيفاً وجهة صرف. لا يُحفظ شيء حتى تضغط حفظ.
         </p>
 
+        {/* An upload of the wrong statement leaves a batch of rows that belong
+            to nothing here; picking them off one at a time is not an option. */}
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <button
+            onClick={() => {
+              setPicking((v) => !v);
+              setPicked(new Set());
+            }}
+            className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1"
+          >
+            {picking ? "إلغاء التحديد" : "🧹 تحديد للحذف"}
+          </button>
+          {picking && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() =>
+                  setPicked(
+                    picked.size === pending.length
+                      ? new Set()
+                      : new Set(pending.map((t) => t.id))
+                  )
+                }
+                className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1"
+              >
+                {picked.size === pending.length ? "إلغاء الكل" : "تحديد الكل"}
+              </button>
+              <button
+                onClick={() => removeMany(Array.from(picked))}
+                disabled={picked.size === 0}
+                className="text-xs text-red-600 border border-red-300 rounded px-2 py-1"
+              >
+                🗑️ حذف المحدد ({picked.size})
+              </button>
+            </div>
+          )}
+        </div>
+
         {pending.some(isDirty) && (
           <button
             onClick={() => saveAll(pending)}
@@ -645,6 +704,21 @@ export default function CardStatementTab() {
           <div className="space-y-2">
             {pending.map((t) => (
               <div key={t.id} className="border border-amber-200 bg-amber-50/30 rounded-lg p-3 space-y-2">
+                {picking && (
+                  <label className="flex items-center gap-2 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={picked.has(t.id)}
+                      onChange={(e) => {
+                        const next = new Set(picked);
+                        if (e.target.checked) next.add(t.id);
+                        else next.delete(t.id);
+                        setPicked(next);
+                      }}
+                    />
+                    حدّد هذه العملية للحذف
+                  </label>
+                )}
                 <TxnHead t={t} />
                 <TxnEditor
                   t={t}
