@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createHash } from "node:crypto";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
+import { parseStatementJson } from "@/lib/parseStatementJson";
 
 export const maxDuration = 120;
 
@@ -99,46 +100,40 @@ async function handle(req: NextRequest) {
     .map((b) => b.text)
     .join("");
 
-  let parsed: { doc_type?: string; doc_hint?: string; card_last4?: string; transactions?: Txn[] };
-  try {
-    parsed = JSON.parse(text.trim());
-  } catch {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) {
-      return NextResponse.json(
-        { error: "تعذّر قراءة الكشف", sample: text.slice(0, 300) },
-        { status: 502 }
-      );
-    }
-    parsed = JSON.parse(m[0]);
+  const parsed = parseStatementJson(text);
+  if (parsed.transactions.length === 0 && !parsed.docType) {
+    return NextResponse.json(
+      { error: "تعذّر قراءة الكشف", sample: text.slice(0, 300) },
+      { status: 502 }
+    );
   }
 
   // A current-account statement reads as a perfectly good list of transactions,
   // so nothing downstream would have caught it: it has to be refused here,
   // before a single row is written.
-  if (parsed.doc_type && parsed.doc_type !== "card") {
+  if (parsed.docType && parsed.docType !== "card") {
     const what =
-      parsed.doc_type === "account" ? "كشف حساب جارٍ/بنكي" : "مستند غير معروف";
+      parsed.docType === "account" ? "كشف حساب جارٍ/بنكي" : "مستند غير معروف";
     return NextResponse.json(
       {
         error:
           `هذا ${what}، وليس كشف بطاقة ائتمانية — لم يُستورد شيء.` +
-          (parsed.doc_hint ? `\n(${parsed.doc_hint})` : "") +
+          (parsed.docHint ? `\n(${parsed.docHint})` : "") +
           "\nارفع كشف البطاقة الائتمانية.",
-        docType: parsed.doc_type,
+        docType: parsed.docType,
       },
       { status: 400 }
     );
   }
 
-  const txns = (parsed.transactions ?? []).filter(
+  const txns = (parsed.transactions as unknown as Txn[]).filter(
     (t) => t?.txn_date && t?.merchant && Number.isFinite(Number(t.amount))
   );
   if (txns.length === 0) {
     return NextResponse.json({ error: "لم أجد عمليات في الكشف" }, { status: 400 });
   }
 
-  const last4 = (parsed.card_last4 ?? "").replace(/\D/g, "").slice(-4) || null;
+  const last4 = (parsed.cardLast4 ?? "").replace(/\D/g, "").slice(-4) || null;
   const db = supabaseServer();
 
   const rows = txns.map((t) => ({
@@ -180,6 +175,10 @@ async function handle(req: NextRequest) {
     ok: true,
     docType: "card",
     read: txns.length,
+    // Rows the answer mangled or cut off are reported rather than hidden: the
+    // statement can be re-uploaded and the missing ones fill in.
+    unreadable: parsed.skipped,
+    truncated: parsed.truncated,
     added: inserted?.length ?? 0,
     alreadyKnown: txns.length - (inserted?.length ?? 0),
     staleRemoved: dropped?.length ?? 0,

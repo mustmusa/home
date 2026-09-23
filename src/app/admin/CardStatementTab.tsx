@@ -435,7 +435,9 @@ export default function CardStatementTab() {
       setMsg(
         `✅ كشف بطاقة ائتمانية${data.cardLast4 ? ` (••${data.cardLast4})` : ""} — ` +
           `قرأ ${data.read} عملية، أضاف ${data.added}، و${data.alreadyKnown} كانت موجودة` +
-          (data.staleRemoved ? `، وأزال ${data.staleRemoved} تفويضاً انتهى` : "")
+          (data.staleRemoved ? `، وأزال ${data.staleRemoved} تفويضاً انتهى` : "") +
+          (data.unreadable ? `\n⚠️ تعذّرت قراءة ${data.unreadable} عملية` : "") +
+          (data.truncated ? "\n⚠️ الكشف طويل وانقطعت قراءته قبل آخره — أعد الرفع لإكمال الباقي" : "")
       );
       e.target.value = "";
       load();
@@ -569,6 +571,69 @@ export default function CardStatementTab() {
     load();
   }
 
+  // An upload of the wrong statement leaves a batch of rows that belong to
+  // nothing; picking them off one at a time is not an option, and they may sit
+  // in either section depending on whether they were given details.
+  function pickBar(list: Txn[]) {
+    const allPicked = list.length > 0 && list.every((t) => picked.has(t.id));
+    return (
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <button
+          onClick={() => {
+            setPicking((v) => !v);
+            setPicked(new Set());
+          }}
+          className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1"
+        >
+          {picking ? "إلغاء التحديد" : "🧹 تحديد للحذف"}
+        </button>
+        {picking && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const next = new Set(picked);
+                for (const t of list) {
+                  if (allPicked) next.delete(t.id);
+                  else next.add(t.id);
+                }
+                setPicked(next);
+              }}
+              className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1"
+            >
+              {allPicked ? "إلغاء الكل" : "تحديد الكل"}
+            </button>
+            <button
+              onClick={() => removeMany(Array.from(picked))}
+              disabled={picked.size === 0}
+              className="text-xs text-red-600 border border-red-300 rounded px-2 py-1"
+            >
+              🗑️ حذف المحدد ({picked.size})
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function pickBox(t: Txn) {
+    if (!picking) return null;
+    return (
+      <label className="flex items-center gap-2 text-xs text-gray-600">
+        <input
+          type="checkbox"
+          checked={picked.has(t.id)}
+          onChange={(e) => {
+            const next = new Set(picked);
+            if (e.target.checked) next.add(t.id);
+            else next.delete(t.id);
+            setPicked(next);
+          }}
+        />
+        حدّد هذه العملية للحذف
+      </label>
+    );
+  }
+
   const categoryOptions = [...new Set([...BUILT_IN, ...usedCategories])];
   const pending = txns.filter((t) => !isSettled(t));
   const settled = txns.filter(isSettled);
@@ -647,42 +712,7 @@ export default function CardStatementTab() {
           عملية تُعدّ مكتملة إذا رُبطت بفاتورة، أو أُعطيت تصنيفاً وجهة صرف. لا يُحفظ شيء حتى تضغط حفظ.
         </p>
 
-        {/* An upload of the wrong statement leaves a batch of rows that belong
-            to nothing here; picking them off one at a time is not an option. */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <button
-            onClick={() => {
-              setPicking((v) => !v);
-              setPicked(new Set());
-            }}
-            className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1"
-          >
-            {picking ? "إلغاء التحديد" : "🧹 تحديد للحذف"}
-          </button>
-          {picking && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() =>
-                  setPicked(
-                    picked.size === pending.length
-                      ? new Set()
-                      : new Set(pending.map((t) => t.id))
-                  )
-                }
-                className="text-xs text-gray-600 border border-gray-300 rounded px-2 py-1"
-              >
-                {picked.size === pending.length ? "إلغاء الكل" : "تحديد الكل"}
-              </button>
-              <button
-                onClick={() => removeMany(Array.from(picked))}
-                disabled={picked.size === 0}
-                className="text-xs text-red-600 border border-red-300 rounded px-2 py-1"
-              >
-                🗑️ حذف المحدد ({picked.size})
-              </button>
-            </div>
-          )}
-        </div>
+        {pickBar(pending)}
 
         {pending.some(isDirty) && (
           <button
@@ -704,21 +734,7 @@ export default function CardStatementTab() {
           <div className="space-y-2">
             {pending.map((t) => (
               <div key={t.id} className="border border-amber-200 bg-amber-50/30 rounded-lg p-3 space-y-2">
-                {picking && (
-                  <label className="flex items-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={picked.has(t.id)}
-                      onChange={(e) => {
-                        const next = new Set(picked);
-                        if (e.target.checked) next.add(t.id);
-                        else next.delete(t.id);
-                        setPicked(next);
-                      }}
-                    />
-                    حدّد هذه العملية للحذف
-                  </label>
-                )}
+                {pickBox(t)}
                 <TxnHead t={t} />
                 <TxnEditor
                   t={t}
@@ -752,6 +768,8 @@ export default function CardStatementTab() {
           <span className="text-gray-400 text-sm font-normal">({settled.length})</span>
         </h2>
 
+        {pickBar(settled)}
+
         {settled.length === 0 ? (
           <p className="text-center text-gray-400 py-6 text-sm">لم تكتمل أي عملية بعد</p>
         ) : (
@@ -760,6 +778,7 @@ export default function CardStatementTab() {
               const linked = purchases.find((pu) => pu.id === t.purchase_id);
               return (
                 <div key={t.id} className="border border-gray-200 rounded-lg p-3 space-y-2">
+                  {pickBox(t)}
                   <TxnHead t={t} />
 
                   {editing === t.id ? (
