@@ -56,9 +56,14 @@ export async function GET(req: NextRequest) {
       return { ...t, suggestions };
     });
 
-    const spend = (txns ?? []).filter((t) => Number(t.amount) < 0);
+    // Excluded charges stay in the ledger and in their section, but no report
+    // counts them: a card payment or a transfer is not the month's spending.
+    const spend = (txns ?? []).filter((t) => Number(t.amount) < 0 && !t.excluded);
+    const excluded = (txns ?? []).filter((t) => t.excluded);
     const totalSpend = spend.reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
-    const unlinked = withSuggestions.filter((t) => !t.purchase_id && Number(t.amount) < 0);
+    const unlinked = withSuggestions.filter(
+      (t) => !t.purchase_id && Number(t.amount) < 0 && !t.excluded
+    );
 
     const byCategory: Record<string, number> = {};
     for (const t of spend) {
@@ -104,6 +109,10 @@ export async function GET(req: NextRequest) {
       summary: {
         count: txns?.length ?? 0,
         totalSpend: Number(totalSpend.toFixed(2)),
+        excludedCount: excluded.length,
+        excludedTotal: Number(
+          excluded.reduce((s, t) => s + Math.abs(Number(t.amount)), 0).toFixed(2)
+        ),
         unlinkedCount: unlinked.length,
         unlinkedTotal: Number(
           unlinked.reduce((s, t) => s + Math.abs(Number(t.amount)), 0).toFixed(2)
@@ -140,6 +149,9 @@ export async function PATCH(req: NextRequest) {
     }
     if (body.purchaseId !== undefined) {
       patch.purchase_id = body.purchaseId || null;
+    }
+    if (body.excluded !== undefined) {
+      patch.excluded = Boolean(body.excluded);
     }
     if (body.targetKind !== undefined) {
       const kind = body.targetKind || null;

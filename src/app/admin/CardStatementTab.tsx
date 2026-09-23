@@ -134,6 +134,7 @@ type Txn = {
   target_kind: "house" | "personal" | "warehouse" | "other" | null;
   target_house_id: string | null;
   target_label: string | null;
+  excluded: boolean;
   suggestions: Purchase[];
 };
 
@@ -142,6 +143,8 @@ type Summary = {
   totalSpend: number;
   unlinkedCount: number;
   unlinkedTotal: number;
+  excludedCount: number;
+  excludedTotal: number;
   byCategory: Record<string, number>;
   byTarget: Record<string, number>;
 };
@@ -158,11 +161,14 @@ type Draft = {
   target_house_id: string | null;
   target_label: string | null;
   note: string | null;
+  excluded: boolean;
 };
 
-/** مكتملة = مرتبطة بفاتورة، أو لها تصنيف وجهة صرف معاً */
+/** مكتملة = مستبعدة من الحساب، أو مرتبطة بفاتورة، أو لها تصنيف وجهة صرف معاً */
 function isSettled(t: Txn) {
-  return Boolean(t.purchase_id) || Boolean(t.category && t.target_kind);
+  return (
+    Boolean(t.excluded) || Boolean(t.purchase_id) || Boolean(t.category && t.target_kind)
+  );
 }
 
 function Bars({
@@ -209,7 +215,10 @@ function TxnHead({ t }: { t: Txn }) {
   return (
     <div className="flex justify-between items-start gap-2">
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-sm truncate">{t.merchant}</p>
+        <p className="font-semibold text-sm truncate">
+          {t.excluded && <span className="text-gray-400">🚫 </span>}
+          {t.merchant}
+        </p>
         <p className="text-xs text-gray-500">
           {t.txn_date}
           {t.status === "pending" && (
@@ -223,7 +232,13 @@ function TxnHead({ t }: { t: Txn }) {
         </p>
       </div>
       <div className="text-left whitespace-nowrap">
-        <p className="font-bold text-sm tabular-nums">{Math.abs(t.amount).toFixed(2)} ر.س</p>
+        <p
+          className={`font-bold text-sm tabular-nums ${
+            t.excluded ? "text-gray-400 line-through" : ""
+          }`}
+        >
+          {Math.abs(t.amount).toFixed(2)} ر.س
+        </p>
         {t.foreign_amount && (
           <p className="text-[10px] text-gray-400">
             {Math.abs(t.foreign_amount)} {t.foreign_currency}
@@ -307,6 +322,15 @@ function TxnEditor({
           ))}
         </div>
       )}
+
+      <label className="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2">
+        <input
+          type="checkbox"
+          checked={Boolean(draft.excluded)}
+          onChange={(e) => onEdit({ excluded: e.target.checked })}
+        />
+        🚫 لا تُحتسب في مصاريف الشهر (سداد، حوالة، مبلغ مسترجع…)
+      </label>
 
       <InvoicePicker
         value={draft.purchase_id ?? null}
@@ -458,6 +482,7 @@ export default function CardStatementTab() {
       target_house_id: t.target_house_id,
       target_label: t.target_label,
       note: t.note,
+      excluded: Boolean(t.excluded),
     };
   }
 
@@ -490,6 +515,7 @@ export default function CardStatementTab() {
           targetHouseId: d.target_house_id,
           targetLabel: d.target_label,
           note: d.note,
+          excluded: d.excluded,
         }),
       });
       if (!res.ok) {
@@ -528,6 +554,7 @@ export default function CardStatementTab() {
             targetHouseId: d.target_house_id,
             targetLabel: d.target_label,
             note: d.note,
+            excluded: d.excluded,
           }),
         });
       }
@@ -693,6 +720,13 @@ export default function CardStatementTab() {
                 <p className="text-lg font-bold text-red-600">{pending.length}</p>
               </div>
             </div>
+
+            {summary.excludedCount > 0 && (
+              <p className="text-[11px] text-gray-500 mb-3">
+                🚫 مستبعد من الحساب: {summary.excludedCount} عملية بقيمة{" "}
+                {summary.excludedTotal.toFixed(2)} ر.س
+              </p>
+            )}
 
             <div className="space-y-4">
               <Bars title="حسب جهة الصرف" data={summary.byTarget} total={summary.totalSpend} tint="bg-emerald-500" />
