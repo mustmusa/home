@@ -36,23 +36,26 @@ const PROMPT = `هذا ملف PDF يُفترض أنه كشف حساب بطاقة
 إن لم يكن "card" فأعد فقط: {"doc_type":"account","doc_hint":"سطر واحد يصف ما رأيته"}
 ولا تستخرج أي عملية.
 
-إن كان كشف بطاقة، استخرج كل عملية فيه.
-
-لكل عملية أعطني:
-- txn_date: تاريخ العملية بصيغة YYYY-MM-DD
-- posted_date: تاريخ الإرسال/القيد بنفس الصيغة، أو null
-- merchant: اسم التاجر كما هو مكتوب (اللاتيني كما هو، والعربي مقروءاً بشكل صحيح)
-- amount: المبلغ رقماً. المصروف سالب والسداد موجب
-- foreign_amount و foreign_currency: إن ظهر مبلغ بعملة أجنبية، وإلا null
-- status: "pending" إن كانت تحت "التفاويض المعلقة"، و"posted" فيما عدا ذلك
+إن كان كشف بطاقة، استخرج كل عملية فيه. لكل عملية:
+- d: تاريخ العملية YYYY-MM-DD
+- m: اسم التاجر كما هو مكتوب (اللاتيني كما هو، والعربي مقروءاً بشكل صحيح)
+- a: المبلغ رقماً. المصروف سالب والسداد موجب
+- p: تاريخ القيد YYYY-MM-DD — اكتبه فقط إن اختلف عن d
+- fa و fc: المبلغ والعملة الأجنبية — فقط إن وُجدا
+- s: اكتب "pending" فقط للعمليات تحت "التفاويض المعلقة"
 
 قواعد:
 - لا تتجاهل أي عملية، بما فيها ذات المبلغ صفر
 - لا تجمع عمليتين متشابهتين: نفس التاجر قد يتكرر في اليوم بمبالغ مختلفة، سجّل كل واحدة
 - المبالغ أرقام بلا رمز عملة أو فواصل آلاف
+- لا تكتب مفتاحاً قيمته null — احذفه
+- سطر واحد لكل عملية، بلا مسافات زائدة، فالكشف قد يكون طويلاً
 
-أعد JSON فقط:
-{"doc_type":"card","card_last4":"1649","transactions":[{"txn_date":"2026-09-17","posted_date":null,"merchant":"...","amount":-24.00,"foreign_amount":null,"foreign_currency":null,"status":"posted"}]}`;
+أعد JSON فقط بلا أي شرح:
+{"doc_type":"card","card_last4":"1649","tx":[
+{"d":"2026-09-17","m":"PANDA","a":-24.00},
+{"d":"2026-09-18","m":"مطعم","a":-31.50,"s":"pending"}
+]}`;
 
 function fingerprint(t: Txn) {
   return createHash("sha256")
@@ -78,9 +81,15 @@ async function handle(req: NextRequest) {
 
   // The PDF goes to the model as a document: extracting its text first returns
   // the Arabic reversed, while the layout survives this way.
-  const message = await getClient().messages.create({
+  //
+  // Streamed, because a long statement's answer runs past the SDK's timeout on
+  // a plain create() at this token ceiling. 16k used to cut the answer off at
+  // about 120 charges; the compact one-line-per-charge shape above roughly
+  // halves the cost of each, and 32k leaves room for a statement several times
+  // longer than a month's.
+  const message = await getClient().messages.stream({
     model: "claude-sonnet-5",
-    max_tokens: 16000,
+    max_tokens: 32000,
     messages: [
       {
         role: "user",
@@ -93,7 +102,7 @@ async function handle(req: NextRequest) {
         ],
       },
     ],
-  });
+  }).finalMessage();
 
   const text = message.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -126,9 +135,27 @@ async function handle(req: NextRequest) {
     );
   }
 
-  const txns = (parsed.transactions as unknown as Txn[]).filter(
-    (t) => t?.txn_date && t?.merchant && Number.isFinite(Number(t.amount))
-  );
+  const txns: Txn[] = parsed.transactions
+    .map((raw) => {
+      const r = raw as Record<string, unknown>;
+      const date = String(r.d ?? r.txn_date ?? "");
+      const posted = r.p ?? r.posted_date ?? null;
+      return {
+        txn_date: date,
+        posted_date: posted ? String(posted) : null,
+        merchant: String(r.m ?? r.merchant ?? ""),
+        amount: Number(r.a ?? r.amount),
+        foreign_amount: Number.isFinite(Number(r.fa ?? r.foreign_amount))
+          ? Number(r.fa ?? r.foreign_amount)
+          : null,
+        foreign_currency:
+          typeof (r.fc ?? r.foreign_currency) === "string"
+            ? String(r.fc ?? r.foreign_currency)
+            : null,
+        status: (r.s ?? r.status) === "pending" ? ("pending" as const) : ("posted" as const),
+      };
+    })
+    .filter((t) => t.txn_date && t.merchant && Number.isFinite(t.amount));
   if (txns.length === 0) {
     return NextResponse.json({ error: "لم أجد عمليات في الكشف" }, { status: 400 });
   }
@@ -178,7 +205,9 @@ async function handle(req: NextRequest) {
     // Rows the answer mangled or cut off are reported rather than hidden: the
     // statement can be re-uploaded and the missing ones fill in.
     unreadable: parsed.skipped,
-    truncated: parsed.truncated,
+    // The model's own stop reason is the reliable signal; a half-written last
+    // object only shows up when the cut landed mid-row.
+    truncated: parsed.truncated || message.stop_reason === "max_tokens",
     added: inserted?.length ?? 0,
     alreadyKnown: txns.length - (inserted?.length ?? 0),
     staleRemoved: dropped?.length ?? 0,

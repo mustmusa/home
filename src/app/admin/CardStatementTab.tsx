@@ -461,7 +461,9 @@ export default function CardStatementTab() {
           `قرأ ${data.read} عملية، أضاف ${data.added}، و${data.alreadyKnown} كانت موجودة` +
           (data.staleRemoved ? `، وأزال ${data.staleRemoved} تفويضاً انتهى` : "") +
           (data.unreadable ? `\n⚠️ تعذّرت قراءة ${data.unreadable} عملية` : "") +
-          (data.truncated ? "\n⚠️ الكشف طويل وانقطعت قراءته قبل آخره — أعد الرفع لإكمال الباقي" : "")
+          (data.truncated
+            ? "\n⚠️ الكشف أطول من أن يُقرأ دفعة واحدة وانقطعت القراءة قبل آخره — قسّم الملف وارفعه على دفعتين (إعادة رفع الملف نفسه ستقف عند الحد نفسه)"
+            : "")
       );
       e.target.value = "";
       load();

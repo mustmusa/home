@@ -48,7 +48,11 @@ export function parseStatementJson(text: string): StatementParse {
       docType: typeof strict.doc_type === "string" ? strict.doc_type : null,
       docHint: typeof strict.doc_hint === "string" ? strict.doc_hint : null,
       cardLast4: strict.card_last4 == null ? null : String(strict.card_last4),
-      transactions: Array.isArray(strict.transactions) ? (strict.transactions as RawTxn[]) : [],
+      transactions: Array.isArray(strict.tx)
+        ? (strict.tx as RawTxn[])
+        : Array.isArray(strict.transactions)
+          ? (strict.transactions as RawTxn[])
+          : [],
     };
   }
 
@@ -56,8 +60,12 @@ export function parseStatementJson(text: string): StatementParse {
   const docHint = text.match(/"doc_hint"\s*:\s*"([^"]*)"/)?.[1] ?? null;
   const cardLast4 = text.match(/"card_last4"\s*:\s*"?([0-9]{2,4})"?/)?.[1] ?? null;
 
-  const arrayAt = text.indexOf("[", text.indexOf('"transactions"'));
-  if (text.indexOf('"transactions"') === -1 || arrayAt === -1) {
+  const keyAt = ['"tx"', '"transactions"']
+    .map((k) => text.indexOf(k))
+    .filter((i) => i !== -1)
+    .sort((a, b) => a - b)[0];
+  const arrayAt = keyAt === undefined ? -1 : text.indexOf("[", keyAt);
+  if (arrayAt === -1) {
     return { ...empty, docType, docHint, cardLast4, recovered: true, truncated: true };
   }
 
