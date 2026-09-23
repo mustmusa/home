@@ -12,13 +12,112 @@ type Purchase = {
 };
 
 /** "متجر" identifies nothing, so the invoice's own items name it instead. */
-function purchaseLabel(pu: Purchase) {
+function itemsHint(pu: Purchase) {
   const items = (pu.purchase_lines ?? []).map((l) => l.item_name).filter(Boolean);
-  const hint = items.length
-    ? ` (${items.slice(0, 3).join("، ")}${items.length > 3 ? ` +${items.length - 3}` : ""})`
-    : "";
-  return `${pu.store_name}${hint} — ${Number(pu.total_amount).toFixed(2)} ر.س — ${pu.purchased_at.slice(0, 10)}`;
+  if (items.length === 0) return "";
+  return `${items.slice(0, 3).join("، ")}${items.length > 3 ? ` +${items.length - 3}` : ""}`;
 }
+
+function purchaseLabel(pu: Purchase) {
+  return `${pu.store_name} — ${Number(pu.total_amount).toFixed(2)} ر.س — ${pu.purchased_at.slice(0, 10)}`;
+}
+
+/**
+ * A native <select> was unusable here: option text carries the store, the
+ * amount, the date and a few item names, and the browser draws that popup as
+ * wide as the longest line — off the side of the screen, unreadable. This
+ * opens in place instead, one invoice per row over two lines, with a filter
+ * because the list is every invoice on file.
+ */
+function InvoicePicker({
+  value,
+  purchases,
+  onChange,
+}: {
+  value: string | null;
+  purchases: Purchase[];
+  onChange: (id: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const selected = purchases.find((pu) => pu.id === value) ?? null;
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? purchases.filter((pu) =>
+        `${pu.store_name} ${itemsHint(pu)} ${pu.total_amount} ${pu.purchased_at.slice(0, 10)}`
+          .toLowerCase()
+          .includes(q)
+      )
+    : purchases;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="input text-xs w-full flex items-center justify-between gap-2 text-right"
+      >
+        <span className="truncate">
+          {selected ? `🧾 ${purchaseLabel(selected)}` : "🧾 بلا فاتورة — اضغط للاختيار"}
+        </span>
+        <span className="text-gray-400">{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div className="mt-1 border border-gray-200 rounded-lg bg-white overflow-hidden">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="ابحث باسم المتجر أو المبلغ أو التاريخ"
+            className="input text-xs w-full rounded-none border-0 border-b border-gray-200"
+          />
+          <div className="max-h-56 overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+              className="w-full text-right text-xs p-2 hover:bg-gray-50 border-b border-gray-100"
+            >
+              🧾 بلا فاتورة
+            </button>
+            {shown.length === 0 && (
+              <p className="text-[11px] text-gray-400 p-3 text-center">لا فاتورة مطابقة</p>
+            )}
+            {shown.map((pu) => (
+              <button
+                type="button"
+                key={pu.id}
+                onClick={() => {
+                  onChange(pu.id);
+                  setOpen(false);
+                  setQuery("");
+                }}
+                className={`w-full text-right p-2 hover:bg-gray-50 border-b border-gray-100 ${
+                  pu.id === value ? "bg-blue-50" : ""
+                }`}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold truncate">🧾 {pu.store_name}</span>
+                  <span className="text-xs text-green-700 whitespace-nowrap">
+                    {Number(pu.total_amount).toFixed(2)} ر.س
+                  </span>
+                </span>
+                <span className="block text-[10px] text-gray-500 truncate">
+                  {pu.purchased_at.slice(0, 10)}
+                  {itemsHint(pu) && ` • ${itemsHint(pu)}`}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type House = { id: string; name: string };
 
 type Txn = {
@@ -209,18 +308,11 @@ function TxnEditor({
         </div>
       )}
 
-      <select
-        value={draft.purchase_id ?? ""}
-        onChange={(e) => onEdit({ purchase_id: e.target.value || null })}
-        className="input text-xs w-full"
-      >
-        <option value="">🧾 بلا فاتورة</option>
-        {purchases.map((pu) => (
-          <option key={pu.id} value={pu.id}>
-            {purchaseLabel(pu)}
-          </option>
-        ))}
-      </select>
+      <InvoicePicker
+        value={draft.purchase_id ?? null}
+        purchases={purchases}
+        onChange={(id) => onEdit({ purchase_id: id })}
+      />
 
       <div className="grid grid-cols-2 gap-2">
         <select
