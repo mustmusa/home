@@ -135,6 +135,7 @@ type Txn = {
   target_house_id: string | null;
   target_label: string | null;
   excluded: boolean;
+  excluded_by_category: boolean;
   suggestions: Purchase[];
 };
 
@@ -167,8 +168,13 @@ type Draft = {
 /** مكتملة = مستبعدة من الحساب، أو مرتبطة بفاتورة، أو لها تصنيف وجهة صرف معاً */
 function isSettled(t: Txn) {
   return (
-    Boolean(t.excluded) || Boolean(t.purchase_id) || Boolean(t.category && t.target_kind)
+    isExcluded(t) || Boolean(t.purchase_id) || Boolean(t.category && t.target_kind)
   );
+}
+
+/** مستثناة: بعلامتها الخاصة، أو لأن تصنيفها كله مستثنى */
+function isExcluded(t: Txn) {
+  return Boolean(t.excluded) || Boolean(t.excluded_by_category);
 }
 
 function Bars({
@@ -176,11 +182,13 @@ function Bars({
   data,
   total,
   tint,
+  onToggleExclude,
 }: {
   title: string;
   data: Record<string, number>;
   total: number;
   tint: string;
+  onToggleExclude?: (name: string, excluded: boolean) => void;
 }) {
   const rows = Object.entries(data).sort((a, b) => b[1] - a[1]);
   if (rows.length === 0) return null;
@@ -198,6 +206,15 @@ function Bars({
               />
             </div>
             <span className="w-20 text-left font-semibold tabular-nums">{amount.toFixed(2)}</span>
+            {onToggleExclude && !label.startsWith("غير") && !label.startsWith("بلا") && (
+              <button
+                onClick={() => onToggleExclude(label, true)}
+                title="استثنِ هذا التصنيف من مصاريف الشهر"
+                className="shrink-0 text-gray-300 hover:text-red-500"
+              >
+                🚫
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -216,7 +233,7 @@ function TxnHead({ t }: { t: Txn }) {
     <div className="flex justify-between items-start gap-2">
       <div className="flex-1 min-w-0">
         <p className="font-semibold text-sm truncate">
-          {t.excluded && <span className="text-gray-400">🚫 </span>}
+          {isExcluded(t) && <span className="text-gray-400">🚫 </span>}
           {t.merchant}
         </p>
         <p className="text-xs text-gray-500">
@@ -234,7 +251,7 @@ function TxnHead({ t }: { t: Txn }) {
       <div className="text-left whitespace-nowrap">
         <p
           className={`font-bold text-sm tabular-nums ${
-            t.excluded ? "text-gray-400 line-through" : ""
+            isExcluded(t) ? "text-gray-400 line-through" : ""
           }`}
         >
           {Math.abs(t.amount).toFixed(2)} ر.س
@@ -323,14 +340,20 @@ function TxnEditor({
         </div>
       )}
 
-      <label className="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2">
-        <input
-          type="checkbox"
-          checked={Boolean(draft.excluded)}
-          onChange={(e) => onEdit({ excluded: e.target.checked })}
-        />
-        🚫 لا تُحتسب في مصاريف الشهر (سداد، حوالة، مبلغ مسترجع…)
-      </label>
+      {t.excluded_by_category ? (
+        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded p-2">
+          🚫 مستثناة لأن تصنيف «{t.category}» كله مستثنى من مصاريف الشهر
+        </p>
+      ) : (
+        <label className="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2">
+          <input
+            type="checkbox"
+            checked={Boolean(draft.excluded)}
+            onChange={(e) => onEdit({ excluded: e.target.checked })}
+          />
+          🚫 لا تُحتسب في مصاريف الشهر (سداد، حوالة، مبلغ مسترجع…)
+        </label>
+      )}
 
       <InvoicePicker
         value={draft.purchase_id ?? null}
@@ -417,6 +440,7 @@ export default function CardStatementTab() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Partial<Draft>>>({});
+  const [excludedCategories, setExcludedCategories] = useState<string[]>([]);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<string | null>(null);
@@ -431,6 +455,7 @@ export default function CardStatementTab() {
       setSummary(data.summary ?? null);
       setHouses(data.houses ?? []);
       setPurchases(data.purchases ?? []);
+      setExcludedCategories(data.excludedCategories ?? []);
       setUsedCategories(data.usedCategories ?? []);
       setUsedTargets(data.usedTargets ?? []);
     } catch (e) {
@@ -564,6 +589,27 @@ export default function CardStatementTab() {
       await load();
     } finally {
       setSaving(null);
+    }
+  }
+
+  async function toggleCategoryExcluded(name: string, excluded: boolean) {
+    setError(null);
+    try {
+      const res = await fetch("/api/card/excluded-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, excluded }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "فشل التعديل");
+      setMsg(
+        excluded
+          ? `استُثني تصنيف «${name}» — كل عملياته خارج مصاريف الشهر`
+          : `أُعيد تصنيف «${name}» إلى مصاريف الشهر`
+      );
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "خطأ غير متوقع");
     }
   }
 
@@ -724,15 +770,37 @@ export default function CardStatementTab() {
             </div>
 
             {summary.excludedCount > 0 && (
-              <p className="text-[11px] text-gray-500 mb-3">
+              <p className="text-[11px] text-gray-500 mb-2">
                 🚫 مستبعد من الحساب: {summary.excludedCount} عملية بقيمة{" "}
                 {summary.excludedTotal.toFixed(2)} ر.س
               </p>
             )}
 
+            {excludedCategories.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 mb-3">
+                <span className="text-[11px] text-gray-500">تصنيفات مستثناة:</span>
+                {excludedCategories.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => toggleCategoryExcluded(c, false)}
+                    title="أعده إلى مصاريف الشهر"
+                    className="text-[11px] bg-gray-100 text-gray-600 border border-gray-200 rounded-full px-2 py-0.5"
+                  >
+                    🚫 {c} ✕
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="space-y-4">
               <Bars title="حسب جهة الصرف" data={summary.byTarget} total={summary.totalSpend} tint="bg-emerald-500" />
-              <Bars title="حسب التصنيف" data={summary.byCategory} total={summary.totalSpend} tint="bg-primary" />
+              <Bars
+                title="حسب التصنيف"
+                data={summary.byCategory}
+                total={summary.totalSpend}
+                tint="bg-primary"
+                onToggleExclude={toggleCategoryExcluded}
+              />
             </div>
           </>
         )}

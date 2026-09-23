@@ -32,6 +32,15 @@ export async function GET(req: NextRequest) {
 
     const { data: houses } = await db.from("houses").select("id, name");
 
+    // A category can be excluded as a whole: every charge carrying it drops out
+    // of the month's spending, the ones already imported and any that arrive in
+    // a later upload, without ticking them one by one.
+    const { data: excludedCats } = await db.from("card_excluded_categories").select("name");
+    const excludedCategories = (excludedCats ?? []).map((r) => r.name as string);
+    const excludedSet = new Set(excludedCategories);
+    const isExcluded = (t: { excluded?: boolean | null; category: string | null }) =>
+      Boolean(t.excluded) || (t.category ? excludedSet.has(t.category) : false);
+
     const { data: purchases } = await db
       .from("purchases")
       .select("id, store_name, total_amount, purchased_at, purchase_lines(item_name)")
@@ -42,7 +51,8 @@ export async function GET(req: NextRequest) {
     // of each other; the bank posts a day or two after the till.
     const linkedIds = new Set((txns ?? []).map((t) => t.purchase_id).filter(Boolean));
     const withSuggestions = (txns ?? []).map((t) => {
-      if (t.purchase_id) return { ...t, suggestions: [] };
+      const flags = { excluded_by_category: Boolean(t.category && excludedSet.has(t.category)) };
+      if (t.purchase_id) return { ...t, ...flags, suggestions: [] };
       const spend = Math.abs(Number(t.amount));
       const when = new Date(t.txn_date).getTime();
       const suggestions = (purchases ?? [])
@@ -53,16 +63,16 @@ export async function GET(req: NextRequest) {
           return gap <= MATCH_WINDOW_DAYS * DAY;
         })
         .slice(0, 3);
-      return { ...t, suggestions };
+      return { ...t, ...flags, suggestions };
     });
 
     // Excluded charges stay in the ledger and in their section, but no report
     // counts them: a card payment or a transfer is not the month's spending.
-    const spend = (txns ?? []).filter((t) => Number(t.amount) < 0 && !t.excluded);
-    const excluded = (txns ?? []).filter((t) => t.excluded);
+    const spend = (txns ?? []).filter((t) => Number(t.amount) < 0 && !isExcluded(t));
+    const excluded = (txns ?? []).filter(isExcluded);
     const totalSpend = spend.reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
     const unlinked = withSuggestions.filter(
-      (t) => !t.purchase_id && Number(t.amount) < 0 && !t.excluded
+      (t) => !t.purchase_id && Number(t.amount) < 0 && !isExcluded(t)
     );
 
     const byCategory: Record<string, number> = {};
@@ -106,6 +116,7 @@ export async function GET(req: NextRequest) {
       purchases: purchases ?? [],
       usedCategories,
       usedTargets,
+      excludedCategories,
       summary: {
         count: txns?.length ?? 0,
         totalSpend: Number(totalSpend.toFixed(2)),
