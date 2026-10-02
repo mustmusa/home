@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   // ---- مصاريف كل بيت هذا الشهر (فواتير + سحوبات من المخزن) ----
   const { data: monthLines, error: monthErr } = await db
     .from("purchase_lines")
-    .select("house_id, destination, line_total, item_name, source, created_at")
+    .select("house_id, destination, line_total, item_name, source, created_at, quantity, unit_price")
     .gte("created_at", start)
     .lt("created_at", end);
   if (monthErr) return NextResponse.json({ error: monthErr.message }, { status: 500 });
@@ -45,6 +45,18 @@ export async function GET(req: NextRequest) {
       name: h.name as string,
       total: rows.reduce((s, r) => s + Number(r.line_total || 0), 0),
       count: rows.length,
+      // The lines behind the figure, so the total can be opened and read
+      // instead of taken on trust.
+      lines: rows
+        .map((r) => ({
+          item_name: r.item_name as string,
+          quantity: r.quantity as number | null,
+          unit_price: r.unit_price as number | null,
+          line_total: Number(r.line_total || 0),
+          created_at: String(r.created_at),
+          source: r.source as string,
+        }))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at)),
     };
   });
 
