@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
+import { canRecordPurchases } from "@/lib/permissions";
 import { Anthropic } from "@anthropic-ai/sdk";
 
 const client = new Anthropic();
@@ -18,7 +19,7 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
-  if (!session || session.role !== "admin") {
+  if (!session || !canRecordPurchases(session.role)) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
 

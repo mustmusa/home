@@ -3,9 +3,11 @@
 import { useState } from "react";
 import WarehouseManager from "@/components/WarehouseManager";
 import OffersTab from "@/app/admin/OffersTab";
+import NewInvoiceTab from "@/app/admin/NewInvoiceTab";
 
 const TABS = [
   { id: "inventory", label: "المخزون" },
+  { id: "invoice", label: "فاتورة جديدة" },
   { id: "offers", label: "🎁 العروض" },
 ] as const;
 
@@ -31,6 +33,7 @@ export default function WarehouseDashboard() {
       </nav>
 
       {tab === "inventory" && <WarehouseManager />}
+      {tab === "invoice" && <NewInvoiceTab />}
       {tab === "offers" && <OffersTab />}
     </div>
   );

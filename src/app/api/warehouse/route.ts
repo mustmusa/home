@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
-
-function canManageWarehouse(role: string) {
-  return role === "warehouse" || role === "admin";
-}
+import { canManageWarehouse } from "@/lib/permissions";
 
 export async function GET() {
   const session = await getSession();
