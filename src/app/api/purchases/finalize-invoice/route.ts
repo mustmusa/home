@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
 import { canRecordPurchases } from "@/lib/permissions";
-import { Anthropic } from "@anthropic-ai/sdk";
-
-const client = new Anthropic();
-
+import { mergeInvoiceBatches } from "@/lib/mergeInvoiceBatches";
 type ExtractedLine = {
   item_name: string;
   quantity: number | null;
@@ -56,87 +53,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "لم تجد أي بيانات للفاتورة — قد تكون تمت معالجتها بالفعل" }, { status: 404 });
   }
 
-  // اجمع جميع السطور من جميع الدفعات
-  let allLines: ExtractedLine[] = [];
+  // اجمع السطور: التداخل بين صورتين متتاليتين فقط هو التكرار الحقيقي
+  const batchLines: ExtractedLine[][] = [];
   let allImagePaths: string[] = [];
-
   for (const batch of batches) {
-    allLines = allLines.concat(batch.extracted_lines || []);
+    batchLines.push((batch.extracted_lines || []) as ExtractedLine[]);
     allImagePaths = allImagePaths.concat(batch.image_paths || []);
   }
 
+  const allLines = batchLines.flat();
   if (allLines.length === 0) {
     return NextResponse.json({ error: "لا توجد عناصر في الفاتورة" }, { status: 400 });
   }
 
-  // حذف التطابقات باستخدام Claude - بذكاء عالي
-  // الهدف: الوصول إلى 54 عنصر بالضبط مع مجموع ~518.82
-  let dedupedLines = allLines;
-  try {
-    const itemsList = allLines
-      .map(
-        (l, i) =>
-          `${i + 1}. "${l.item_name}" (qty: ${l.quantity}, unit_price: ${l.unit_price}, line_total: ${l.line_total})`,
-      )
-      .join("\n");
-
-    const currentTotal = allLines.reduce((sum, l) => sum + (l.line_total || 0), 0);
-    const expectedTotal = 518.82; // المجموع المتوقع بدون ضريبة
-
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4000,
-      messages: [
-        {
-          role: "user",
-          content: `أنت متخصص في تنظيف بيانات الفواتير من التكرارات.
-
-عندي ${allLines.length} سطر مستخرج من فاتورة تحتوي على **بالضبط 54 عنصر**. بسبب التداخل بين الصور، استخرجنا ${allLines.length} سطر (${allLines.length - 54} إضافية).
-
-المجموع الحالي: ${currentTotal.toFixed(2)} ريال
-المجموع المتوقع: ${expectedTotal} ريال
-الفرق: ${(currentTotal - expectedTotal).toFixed(2)} ريال
-
-**الهدف:** احذف التطابقات (الأسطر المكررة) لنصل إلى **بالضبط 54 سطر** مع مجموع ~${expectedTotal} ريال.
-
-**قواعد الحذف:**
-- احذف الأسطر المكررة تماماً (نفس الاسم + الكمية + السعر)
-- احذف الأسطر ذات الأسعار العالية جداً (قد تكون مع هامش بدل السعر الأصلي)
-- احفظ الأول من كل تكرار
-
-**القائمة:**
-${itemsList}
-
-أرجع JSON بهذا الشكل (بدون نص إضافي):
-{"toRemoveIndices": [2, 5, 9]}
-
-ملاحظات:
-- الفهرسة من 1
-- احذف فقط ${allLines.length - 54} سطر (عدد الإضافيات بالضبط)
-- انتبه: قد يكون بعض الأسعار مقروءة بطريقة خاطئة - احذف تلك الأسطر
-`,
-        },
-      ],
-    });
-
-    const result = response.content[0];
-    if (result.type === "text") {
-      try {
-        const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed.toRemoveIndices) && parsed.toRemoveIndices.length > 0) {
-            dedupedLines = allLines.filter((_, i) => !parsed.toRemoveIndices.includes(i + 1));
-            console.log(`✅ تم حذف ${parsed.toRemoveIndices.length} عنصر مكرر عبر Claude`);
-          }
-        }
-      } catch (e) {
-        console.error("فشل parsing JSON من Claude:", e);
-      }
-    }
-  } catch (e) {
-    console.error("فشل حذف التكرار عبر Claude:", e);
-  }
+  const { lines: dedupedLines } = mergeInvoiceBatches(batchLines);
 
   console.log(`\n=== استخراج الفاتورة ===`);
   console.log(`السطور المستخرجة من جميع الصور: ${allLines.length}`);
@@ -259,10 +189,6 @@ ${itemsList}
       totalBefore: allLines.reduce((sum, l) => sum + (l.line_total || 0), 0),
       totalAfter: total,
       totalWithTax,
-      expectedTotal: 518.82,
-      expectedTotalWithTax: 596.64,
-      difference: total - 518.82,
-      differenceWithTax: totalWithTax - 596.64,
       itemCountBefore: allLines.length,
       itemCountAfter: itemCount,
       validationErrors: criticalErrors.length > 0 ? criticalErrors : [],
