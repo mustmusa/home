@@ -1,22 +1,28 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import MallBasket from "./MallBasket";
 import type { House, PurchaseRequest } from "@/lib/types";
 
-type PurchaseLineItem = {
+type InvoiceLine = {
   id: string;
   item_name: string;
-  quantity: number;
+  quantity: number | null;
   line_total: number;
+};
+
+type Invoice = {
+  id: string;
   store_name: string;
   created_at: string;
+  total: number;
+  lines: InvoiceLine[];
 };
 
 export default function PendingRequestsTab() {
   const [requests, setRequests] = useState<PurchaseRequest[]>([]);
   const [houses, setHouses] = useState<House[]>([]);
-  const [purchaseLines, setPurchaseLines] = useState<PurchaseLineItem[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [pickedInvoice, setPickedInvoice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [linkingRequestId, setLinkingRequestId] = useState<string | null>(null);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
@@ -35,23 +41,22 @@ export default function PendingRequestsTab() {
       setRequests(reqRes.requests ?? []);
       setHouses(housesRes.houses ?? []);
 
-      // استخراج العناصر من الفواتير
-      const lines: PurchaseLineItem[] = [];
-      const purchases = purchasesRes.purchases ?? [];
-      purchases.forEach((p: any) => {
-        const purchaseLines = p.purchase_lines ?? [];
-        purchaseLines.forEach((line: any) => {
-          lines.push({
-            id: line.id,
-            item_name: line.item_name,
-            quantity: line.quantity,
-            line_total: line.line_total,
-            store_name: p.store_name,
-            created_at: p.created_at
-          });
-        });
-      });
-      setPurchaseLines(lines);
+      // الربط يبدأ من الفاتورة لا من قائمة كل ما اشتُري: الفواتير أولاً
+      // بتاريخها ومتجرها، ثم عناصر الفاتورة المختارة.
+      setInvoices(
+        (purchasesRes.purchases ?? []).map((p: any) => ({
+          id: p.id,
+          store_name: p.store_name || "متجر",
+          created_at: p.created_at,
+          total: Number(p.total_amount ?? 0),
+          lines: (p.purchase_lines ?? []).map((l: any) => ({
+            id: l.id,
+            item_name: l.item_name,
+            quantity: l.quantity,
+            line_total: Number(l.line_total ?? 0),
+          })),
+        }))
+      );
     } finally {
       setLoading(false);
     }
@@ -61,17 +66,18 @@ export default function PendingRequestsTab() {
     load();
   }, [load]);
 
-  async function linkToPurchase(requestId: string, purchaseId: string) {
+  async function linkToPurchase(requestId: string, lineId: string) {
     setUpdating(true);
     try {
       const res = await fetch(`/api/requests/${requestId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "purchased" }),
+        body: JSON.stringify({ status: "purchased", lineId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "فشل الربط");
       setLinkingRequestId(null);
+      setPickedInvoice(null);
       load();
     } catch (e) {
       alert(e instanceof Error ? e.message : "حدث خطأ");
@@ -139,8 +145,6 @@ export default function PendingRequestsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <MallBasket />
-
       {/* إحصائيات */}
       <section className="card">
         <h2 className="font-bold mb-3">📊 ملخص الطلبات المعلقة</h2>
@@ -192,31 +196,81 @@ export default function PendingRequestsTab() {
                   <li key={r.id} className="border border-gray-100 rounded-lg p-3">
                     {linkingRequestId === r.id ? (
                       <div className="space-y-2">
-                        <p className="text-sm font-semibold mb-2">ربط مع عنصر تم شراؤه:</p>
-                        <div className="space-y-1 max-h-48 overflow-y-auto">
-                          {purchaseLines.length === 0 ? (
-                            <p className="text-gray-500 text-xs p-2">لا توجد عناصر مشتراة</p>
-                          ) : (
-                            purchaseLines.map((line) => (
-                              <button
-                                key={line.id}
-                                onClick={() => linkToPurchase(r.id, line.id)}
-                                disabled={updating}
-                                className="w-full text-left text-xs p-2 rounded border border-blue-200 hover:bg-blue-50"
-                              >
-                                <div className="font-semibold">{line.item_name}</div>
-                                <div className="text-gray-600">
-                                  {line.store_name} • الكمية: {line.quantity} • {line.line_total.toFixed(2)} ريال
+                        {(() => {
+                          const invoice = invoices.find((i) => i.id === pickedInvoice);
+                          if (!invoice) {
+                            return (
+                              <>
+                                <p className="text-sm font-semibold mb-2">اختر الفاتورة:</p>
+                                <div className="space-y-1 max-h-60 overflow-y-auto">
+                                  {invoices.length === 0 ? (
+                                    <p className="text-gray-500 text-xs p-2">لا توجد فواتير</p>
+                                  ) : (
+                                    invoices.map((inv) => (
+                                      <button
+                                        key={inv.id}
+                                        onClick={() => setPickedInvoice(inv.id)}
+                                        className="w-full text-right text-xs p-2 rounded border border-blue-200 hover:bg-blue-50"
+                                      >
+                                        <div className="flex justify-between gap-2">
+                                          <span className="font-semibold">🧾 {inv.store_name}</span>
+                                          <span className="text-green-700 whitespace-nowrap">
+                                            {inv.total.toFixed(2)} ر.س
+                                          </span>
+                                        </div>
+                                        <div className="text-gray-500">
+                                          {new Date(inv.created_at).toLocaleDateString("ar-SA")} •{" "}
+                                          {inv.lines.length} عنصر
+                                        </div>
+                                      </button>
+                                    ))
+                                  )}
                                 </div>
-                                <div className="text-gray-500">
-                                  {new Date(line.created_at).toLocaleString("ar-SA")}
-                                </div>
-                              </button>
-                            ))
-                          )}
-                        </div>
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <p className="text-sm font-semibold">
+                                  🧾 {invoice.store_name} —{" "}
+                                  {new Date(invoice.created_at).toLocaleDateString("ar-SA")}
+                                </p>
+                                <button
+                                  onClick={() => setPickedInvoice(null)}
+                                  className="text-xs text-gray-500 border border-gray-200 rounded px-2 py-1"
+                                >
+                                  ↩ الفواتير
+                                </button>
+                              </div>
+                              <div className="space-y-1 max-h-60 overflow-y-auto">
+                                {invoice.lines.length === 0 ? (
+                                  <p className="text-gray-500 text-xs p-2">لا عناصر في هذه الفاتورة</p>
+                                ) : (
+                                  invoice.lines.map((line) => (
+                                    <button
+                                      key={line.id}
+                                      onClick={() => linkToPurchase(r.id, line.id)}
+                                      disabled={updating}
+                                      className="w-full text-right text-xs p-2 rounded border border-blue-200 hover:bg-blue-50"
+                                    >
+                                      <div className="font-semibold">{line.item_name}</div>
+                                      <div className="text-gray-600">
+                                        {line.quantity ? `الكمية: ${line.quantity} • ` : ""}
+                                        {line.line_total.toFixed(2)} ريال
+                                      </div>
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
                         <button
-                          onClick={() => setLinkingRequestId(null)}
+                          onClick={() => {
+                            setLinkingRequestId(null);
+                            setPickedInvoice(null);
+                          }}
                           className="w-full text-xs p-2 rounded border border-gray-200 text-gray-600"
                         >
                           إلغاء
@@ -264,7 +318,10 @@ export default function PendingRequestsTab() {
                             ✎ تعديل
                           </button>
                           <button
-                            onClick={() => setLinkingRequestId(r.id)}
+                            onClick={() => {
+                              setLinkingRequestId(r.id);
+                              setPickedInvoice(null);
+                            }}
                             className="text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded border border-blue-200"
                           >
                             ✓ ربط

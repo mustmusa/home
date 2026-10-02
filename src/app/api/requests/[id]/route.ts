@@ -40,5 +40,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { error } = await db.from("requests").update(updateData).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Linking a request to the line that filled it: the line moves to the
+  // household that asked for it, so the item shows up in their purchases
+  // instead of sitting in the warehouse.
+  const lineId = body.lineId ? String(body.lineId) : null;
+  if (lineId && session.role === "admin") {
+    const { error: lineErr } = await db
+      .from("purchase_lines")
+      .update({
+        matched_request_id: id,
+        destination: "house",
+        house_id: existing.house_id,
+      })
+      .eq("id", lineId);
+    if (lineErr) return NextResponse.json({ error: lineErr.message }, { status: 500 });
+  }
+
   return NextResponse.json({ ok: true });
 }
