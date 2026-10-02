@@ -37,6 +37,7 @@ export default function ReportsTab() {
   const [loading, setLoading] = useState(true);
   const [openHouse, setOpenHouse] = useState<string | null>(null);
   const [showWarehouse, setShowWarehouse] = useState(false);
+  const [showItemCosts, setShowItemCosts] = useState(false);
 
   const load = useCallback(async (m: string) => {
     setLoading(true);
@@ -214,11 +215,22 @@ export default function ReportsTab() {
           </section>
 
           <section className="card">
-            <h3 className="font-bold mb-3">تكلفة كل عنصر (شهريًا وسنويًا {data.year})</h3>
-            <p className="text-xs text-gray-400 mb-2">
-              يشمل المشتريات الفعلية فقط (لا يشمل السحب الداخلي من المخزن، لتفادي احتساب المبلغ مرتين)
-            </p>
-            {data.itemCosts.length === 0 ? (
+            <button
+              onClick={() => setShowItemCosts((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 text-right"
+            >
+              <h3 className="font-bold">تكلفة كل عنصر (شهريًا وسنويًا {data.year})</h3>
+              <span className="text-sm text-gray-400 whitespace-nowrap">
+                {data.itemCosts.length} عنصر {showItemCosts ? "▲" : "▼"}
+              </span>
+            </button>
+
+            {showItemCosts && (
+              <p className="text-xs text-gray-400 mt-3 mb-2">
+                يشمل المشتريات الفعلية فقط (لا يشمل السحب الداخلي من المخزن، لتفادي احتساب المبلغ مرتين)
+              </p>
+            )}
+            {!showItemCosts ? null : data.itemCosts.length === 0 ? (
               <p className="text-gray-400 text-sm">لا توجد بيانات بعد.</p>
             ) : (
               <div className="overflow-x-auto">
