@@ -139,6 +139,32 @@ export default function WifeDashboard() {
         }
       });
 
+      // المسحوب من المخزن مصروف على البيت أيضاً، وإن لم تكن له فاتورة
+      (purchasesRes.warehousePulls ?? []).forEach((l: any) => {
+        if (l.house_id !== currentUser.house_id) return;
+        const date = String(l.created_at).slice(0, 10);
+        const key = `${date}-warehouse`;
+        if (!purchasedData[key]) {
+          purchasedData[key] = {
+            date,
+            storeName: "📦 من المخزن",
+            totalAmount: 0,
+            itemCount: 0,
+            items: [],
+          };
+        }
+        const lineTotal = Number(l.line_total || 0);
+        const quantity = Number(l.quantity || 1);
+        purchasedData[key].items.push({
+          name: l.item_name || "عنصر",
+          quantity,
+          unitPrice: Number(l.unit_price ?? (quantity > 0 ? lineTotal / quantity : 0)),
+          lineTotal,
+        });
+        purchasedData[key].totalAmount += lineTotal;
+        purchasedData[key].itemCount += 1;
+      });
+
       const allPurchasedByDate: PurchaseByDate[] = Object.values(purchasedData)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 

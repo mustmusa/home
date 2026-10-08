@@ -50,7 +50,24 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ purchases: data });
+
+  // A warehouse pull is a household expense with no invoice behind it, so it
+  // has no parent purchase and this query would never reach it. It is returned
+  // beside the invoices instead of staying invisible to the house it was
+  // charged to.
+  let pullQuery = db
+    .from("purchase_lines")
+    .select("id, item_name, quantity, unit_price, line_total, category, house_id, created_at")
+    .eq("source", "warehouse_pull")
+    .is("purchase_id", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (!isAdmin) pullQuery = pullQuery.eq("house_id", session.houseId);
+
+  const { data: pulls, error: pullsErr } = await pullQuery;
+  if (pullsErr) return NextResponse.json({ error: pullsErr.message }, { status: 500 });
+
+  return NextResponse.json({ purchases: data, warehousePulls: pulls ?? [] });
 }
 
 export async function POST(req: NextRequest) {

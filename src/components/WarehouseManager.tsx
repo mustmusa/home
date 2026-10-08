@@ -28,6 +28,8 @@ export default function WarehouseManager() {
   const [pullRequest, setPullRequest] = useState("");
   const [pullQty, setPullQty] = useState("");
   const [pullError, setPullError] = useState<string | null>(null);
+  const [pullPrice, setPullPrice] = useState("");
+  const [pullDone, setPullDone] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export default function WarehouseManager() {
   async function pull(e: React.FormEvent) {
     e.preventDefault();
     setPullError(null);
+    setPullDone(null);
     if (!pullItem || !pullHouse || !pullQty) {
       setPullError("اختر العنصر والبيت والكمية");
       return;
@@ -108,6 +111,7 @@ export default function WarehouseManager() {
           house_id: pullHouse,
           quantity: Number(pullQty),
           matched_request_id: pullRequest || null,
+          unit_price: pullPrice || null,
         }),
       });
       const data = await res.json();
@@ -115,10 +119,17 @@ export default function WarehouseManager() {
         setPullError(data.error ?? "حدث خطأ");
         return;
       }
+      const house = houses.find((h) => h.id === pullHouse)?.name ?? "البيت";
+      setPullDone(
+        `خُصم ${data.quantity} × ${Number(data.unitCost).toFixed(2)} = ` +
+          `${Number(data.lineTotal).toFixed(2)} ريال من «${data.itemName}» ` +
+          `وأُضيف إلى ${house} • المتبقي في المخزن: ${data.warehouseLeft}`
+      );
       setPullItem("");
       setPullHouse("");
       setPullRequest("");
       setPullQty("");
+      setPullPrice("");
       load();
     } finally {
       setPulling(false);
@@ -126,6 +137,13 @@ export default function WarehouseManager() {
   }
 
   const requestsForHouse = pending.filter((r) => r.house_id === pullHouse);
+  const pullingItem = items.find((it) => it.id === pullItem);
+  // Pulling an item that carries no cost would charge the household nothing,
+  // so the price is asked for here rather than discovered as a zero later.
+  const pullNeedsPrice = Boolean(pullingItem && !(Number(pullingItem.unit_cost ?? 0) > 0));
+  const pullUnitCost = pullNeedsPrice
+    ? Number(pullPrice || 0)
+    : Number(pullingItem?.unit_cost ?? 0);
 
   function startEdit(it: WarehouseItem) {
     setEditingId(it.id);
@@ -380,7 +398,16 @@ export default function WarehouseManager() {
       <section className="card">
         <h2 className="font-bold mb-3">سحب لأحد البيوت</h2>
         <form onSubmit={pull} className="grid grid-cols-2 gap-3">
-          <select className="input col-span-2" value={pullItem} onChange={(e) => setPullItem(e.target.value)} required>
+          <select
+            className="input col-span-2"
+            value={pullItem}
+            onChange={(e) => {
+              setPullItem(e.target.value);
+              setPullPrice("");
+              setPullDone(null);
+            }}
+            required
+          >
             <option value="">اختر العنصر من المخزن</option>
             {items.filter((it) => it.quantity > 0).map((it) => (
               <option key={it.id} value={it.id}>
@@ -413,6 +440,29 @@ export default function WarehouseManager() {
             onChange={(e) => setPullQty(e.target.value)}
             required
           />
+          {pullNeedsPrice && (
+            <input
+              className="input col-span-2"
+              placeholder="سعر الوحدة (لا سعر محفوظ لهذا العنصر)"
+              type="number"
+              step="any"
+              min="0"
+              value={pullPrice}
+              onChange={(e) => setPullPrice(e.target.value)}
+              required
+            />
+          )}
+
+          {pullItem && pullQty && pullUnitCost > 0 && (
+            <p className="col-span-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded p-2">
+              قيمة السحب: {Number(pullQty)} × {pullUnitCost.toFixed(2)} ={" "}
+              <span className="font-bold text-green-700">
+                {(Number(pullQty) * pullUnitCost).toFixed(2)} ريال
+              </span>{" "}
+              تُخصم من المخزن وتُضاف على البيت
+            </p>
+          )}
+
           {pullHouse && requestsForHouse.length > 0 && (
             <select className="input col-span-2" value={pullRequest} onChange={(e) => setPullRequest(e.target.value)}>
               <option value="">(اختياري) اربطه بطلب معلّق</option>
@@ -424,6 +474,11 @@ export default function WarehouseManager() {
             </select>
           )}
           {pullError && <p className="text-red-600 text-sm col-span-2">{pullError}</p>}
+          {pullDone && (
+            <p className="col-span-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2">
+              ✅ {pullDone}
+            </p>
+          )}
           <button className="btn-primary col-span-2" disabled={pulling}>
             {pulling ? "جارٍ السحب..." : "سحب وتسليم"}
           </button>

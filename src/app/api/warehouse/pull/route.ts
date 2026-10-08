@@ -14,6 +14,10 @@ export async function POST(req: NextRequest) {
   const houseId = String(body.house_id ?? "");
   const quantity = Number(body.quantity ?? 0);
   const matchedRequestId = body.matched_request_id ? String(body.matched_request_id) : null;
+  const priceOverride =
+    body.unit_price === undefined || body.unit_price === null || body.unit_price === ""
+      ? null
+      : Number(body.unit_price);
 
   if (!warehouseItemId || !houseId || quantity <= 0) {
     return NextResponse.json({ error: "بيانات ناقصة" }, { status: 400 });
@@ -32,12 +36,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "الكمية المتوفرة بالمخزن أقل من المطلوب" }, { status: 400 });
   }
 
-  const unitCost = Number(item.unit_cost ?? 0);
+  // An item with no cost used to be pulled silently at zero: the quantity left
+  // the warehouse and the household was charged nothing, so the withdrawal
+  // looked like it had no value at all. The price is asked for instead.
+  const unitCost = priceOverride != null && priceOverride > 0 ? priceOverride : Number(item.unit_cost ?? 0);
+  if (!(unitCost > 0)) {
+    return NextResponse.json(
+      { error: "لا سعر لهذه الوحدة في المخزن — أدخل سعر الوحدة لتُحسب قيمة السحب", needsPrice: true },
+      { status: 400 }
+    );
+  }
   const lineTotal = unitCost * quantity;
 
   const { error: updateErr } = await db
     .from("warehouse_items")
-    .update({ quantity: Number(item.quantity) - quantity, updated_at: new Date().toISOString() })
+    .update({
+      quantity: Number(item.quantity) - quantity,
+      unit_cost: unitCost,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", warehouseItemId);
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
@@ -71,5 +88,13 @@ export async function POST(req: NextRequest) {
     await db.from("requests").update({ status: "purchased" }).eq("id", matchedRequestId);
   }
 
-  return NextResponse.json({ ok: true, line });
+  return NextResponse.json({
+    ok: true,
+    line,
+    itemName: item.name,
+    quantity,
+    unitCost,
+    lineTotal,
+    warehouseLeft: Number(item.quantity) - quantity,
+  });
 }
