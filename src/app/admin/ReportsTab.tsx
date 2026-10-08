@@ -11,6 +11,7 @@ type ReportData = {
     total: number;
     count: number;
     lines: {
+      id: string;
       item_name: string;
       quantity: number | null;
       unit_price: number | null;
@@ -38,6 +39,31 @@ export default function ReportsTab() {
   const [openHouse, setOpenHouse] = useState<string | null>(null);
   const [showWarehouse, setShowWarehouse] = useState(false);
   const [showItemCosts, setShowItemCosts] = useState(false);
+  const [moving, setMoving] = useState<string | null>(null);
+
+  // Items land on the wrong house often enough that the report is where it
+  // gets noticed; moving one from here saves hunting for its invoice.
+  async function moveLine(lineId: string, value: string) {
+    setMoving(lineId);
+    try {
+      const res = await fetch("/api/purchases/line", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          value === "warehouse"
+            ? { lineId, destination: "warehouse" }
+            : { lineId, destination: "house", houseId: value }
+        ),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "فشل النقل");
+      await load(month);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "خطأ غير متوقع");
+    } finally {
+      setMoving(null);
+    }
+  }
 
   const load = useCallback(async (m: string) => {
     setLoading(true);
@@ -138,6 +164,7 @@ export default function ReportsTab() {
                               <th className="pb-2">العنصر</th>
                               <th className="pb-2">التاريخ</th>
                               <th className="pb-2">المبلغ</th>
+                              <th className="pb-2">الوجهة</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -157,6 +184,25 @@ export default function ReportsTab() {
                                 </td>
                                 <td className="py-2 font-semibold whitespace-nowrap">
                                   {l.line_total.toFixed(2)}
+                                </td>
+                                <td className="py-2">
+                                  <select
+                                    disabled={moving === l.id}
+                                    value={house.house_id}
+                                    onChange={(e) => moveLine(l.id, e.target.value)}
+                                    className="input text-xs py-1"
+                                  >
+                                    {data.houseTotals.map((h) => (
+                                      <option key={h.house_id} value={h.house_id}>
+                                        🏠 {h.name}
+                                      </option>
+                                    ))}
+                                    {/* A pull already left the warehouse; sending its
+                                        line back would not return the stock. */}
+                                    {l.source !== "warehouse_pull" && (
+                                      <option value="warehouse">📦 المخزن</option>
+                                    )}
+                                  </select>
                                 </td>
                               </tr>
                             ))}

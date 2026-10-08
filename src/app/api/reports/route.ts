@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   // ---- مصاريف كل بيت هذا الشهر (فواتير + سحوبات من المخزن) ----
   const { data: monthLines, error: monthErr } = await db
     .from("purchase_lines")
-    .select("house_id, destination, line_total, item_name, source, created_at, quantity, unit_price")
+    .select("id, house_id, destination, line_total, item_name, source, created_at, quantity, unit_price")
     .gte("created_at", start)
     .lt("created_at", end);
   if (monthErr) return NextResponse.json({ error: monthErr.message }, { status: 500 });
@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
       // instead of taken on trust.
       lines: rows
         .map((r) => ({
+          id: r.id as string,
           item_name: r.item_name as string,
           quantity: r.quantity as number | null,
           unit_price: r.unit_price as number | null,
