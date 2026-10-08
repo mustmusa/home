@@ -43,7 +43,13 @@ export default function ReportsTab() {
 
   // Items land on the wrong house often enough that the report is where it
   // gets noticed; moving one from here saves hunting for its invoice.
-  async function moveLine(lineId: string, value: string) {
+  async function moveLine(lineId: string, value: string, isPull: boolean) {
+    if (value === "warehouse" && isPull) {
+      const ok = confirm(
+        "إرجاع هذه السحبة إلى المخزن؟\nستعود الكمية إلى رصيد المخزن ويُلغى المصروف عن البيت."
+      );
+      if (!ok) return;
+    }
     setMoving(lineId);
     try {
       const res = await fetch("/api/purchases/line", {
@@ -57,6 +63,9 @@ export default function ReportsTab() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "فشل النقل");
+      if (d.returnedToWarehouse) {
+        alert(`أُعيد ${d.returnedToWarehouse} من «${d.itemName}» إلى المخزن وأُلغي المصروف.`);
+      }
       await load(month);
     } catch (e) {
       alert(e instanceof Error ? e.message : "خطأ غير متوقع");
@@ -189,7 +198,9 @@ export default function ReportsTab() {
                                   <select
                                     disabled={moving === l.id}
                                     value={house.house_id}
-                                    onChange={(e) => moveLine(l.id, e.target.value)}
+                                    onChange={(e) =>
+                                      moveLine(l.id, e.target.value, l.source === "warehouse_pull")
+                                    }
                                     className="input text-xs py-1"
                                   >
                                     {data.houseTotals.map((h) => (
@@ -197,11 +208,9 @@ export default function ReportsTab() {
                                         🏠 {h.name}
                                       </option>
                                     ))}
-                                    {/* A pull already left the warehouse; sending its
-                                        line back would not return the stock. */}
-                                    {l.source !== "warehouse_pull" && (
-                                      <option value="warehouse">📦 المخزن</option>
-                                    )}
+                                    {/* For a pull this is a return: the route puts
+                                        the quantity back and drops the expense. */}
+                                    <option value="warehouse">📦 المخزن</option>
                                   </select>
                                 </td>
                               </tr>

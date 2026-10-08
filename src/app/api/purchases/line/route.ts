@@ -57,12 +57,69 @@ export async function PATCH(req: NextRequest) {
     const db = supabaseServer();
     const { data: line, error: readErr } = await db
       .from("purchase_lines")
-      .select("id, purchase_id, quantity, unit_price")
+      .select("id, purchase_id, quantity, unit_price, item_name, category, source, destination")
       .eq("id", lineId)
       .maybeSingle();
 
     if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
     if (!line) return NextResponse.json({ error: "السطر غير موجود" }, { status: 404 });
+
+    // Sending a warehouse pull back to the warehouse is a return, not a
+    // relabel: the quantity physically left, so it is put back on the shelf and
+    // the household expense is removed. Changing the field alone would leave an
+    // expense belonging to no one and stock that does not exist.
+    if (body.destination === "warehouse" && line.source === "warehouse_pull") {
+      const qty = Number(line.quantity ?? 0);
+      const name = String(line.item_name ?? "").trim();
+
+      const { data: item } = await db
+        .from("warehouse_items")
+        .select("id, quantity")
+        .ilike("name", name)
+        .maybeSingle();
+
+      if (item) {
+        await db
+          .from("warehouse_items")
+          .update({
+            quantity: Number(item.quantity) + qty,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", item.id as string);
+        await db.from("warehouse_movements").insert({
+          warehouse_item_id: item.id as string,
+          change_qty: qty,
+          reason: "adjustment",
+          note: "إلغاء سحب وإرجاع للمخزن",
+          created_by: session.uid,
+        });
+      } else {
+        const { data: created } = await db
+          .from("warehouse_items")
+          .insert({
+            name,
+            quantity: qty,
+            unit_cost: line.unit_price,
+            category: line.category ?? null,
+          })
+          .select("id")
+          .single();
+        if (created) {
+          await db.from("warehouse_movements").insert({
+            warehouse_item_id: created.id as string,
+            change_qty: qty,
+            reason: "adjustment",
+            note: "إلغاء سحب وإرجاع للمخزن",
+            created_by: session.uid,
+          });
+        }
+      }
+
+      const { error: delErr } = await db.from("purchase_lines").delete().eq("id", lineId);
+      if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+      return NextResponse.json({ success: true, returnedToWarehouse: qty, itemName: name });
+    }
 
     const patch: Record<string, unknown> = {};
 
