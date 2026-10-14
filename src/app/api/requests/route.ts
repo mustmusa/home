@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getSession } from "@/lib/session";
 import { parseRequestText } from "@/lib/anthropic";
+import { splitRequestText } from "@/lib/splitRequestText";
 import { errorMessage } from "@/lib/errors";
 
 export async function GET(req: NextRequest) {
@@ -46,11 +47,22 @@ export async function POST(req: NextRequest) {
   if (!rawText) return NextResponse.json({ error: "الرسالة فارغة" }, { status: 400 });
   if (!houseId) return NextResponse.json({ error: "لا يوجد بيت مرتبط بحسابك" }, { status: 400 });
 
+  // The list is the point; the parser is a convenience. When the model call
+  // fails — an expired key, an outage — the message is split on its own lines
+  // and saved rather than lost, and the reply says which path was taken.
   let items;
+  let parsedBy: "ai" | "lines" = "ai";
+  let parseNote: string | null = null;
   try {
     items = await parseRequestText(rawText);
+    if (items.length === 0) {
+      items = splitRequestText(rawText);
+      parsedBy = "lines";
+    }
   } catch (e) {
-    return NextResponse.json({ error: "تعذّر تفسير الرسالة: " + errorMessage(e) }, { status: 502 });
+    items = splitRequestText(rawText);
+    parsedBy = "lines";
+    parseNote = "حُفظت بتقسيم الأسطر لأن القارئ الذكي غير متاح الآن: " + errorMessage(e);
   }
 
   if (items.length === 0) {
@@ -69,5 +81,5 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabaseServer().from("requests").insert(rows).select();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ requests: data });
+  return NextResponse.json({ requests: data, parsedBy, parseNote });
 }

@@ -210,12 +210,17 @@ export default function WifeDashboard() {
         return;
       }
 
-      setSuccess("تم إرسال الطلب بنجاح ✅");
+      const count = (data.requests ?? []).length;
+      setSuccess(
+        data.parsedBy === "lines"
+          ? `تم إرسال ${count} عنصر ✅ (قُسّمت حسب الأسطر — راجعيها مع الأدمن)`
+          : "تم إرسال الطلب بنجاح ✅"
+      );
       setNewRequestText("");
       setTimeout(() => {
         setSuccess(null);
         load();
-      }, 2000);
+      }, 3000);
     } catch (e) {
       setError("تعذر الاتصال بالخادم");
     } finally {
