@@ -3,7 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { verifyPin } from "@/lib/password";
 import { signSession, SESSION_COOKIE } from "@/lib/auth";
 import type { Role } from "@/lib/types";
-import { errorMessage } from "@/lib/errors";
+import { friendlyError } from "@/lib/errors";
 
 type UserRow = {
   id: string;
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       })),
     });
   } catch (e) {
-    return NextResponse.json({ error: errorMessage(e) }, { status: 500 });
+    return NextResponse.json({ error: friendlyError(e) }, { status: 500 });
   }
 }
 
